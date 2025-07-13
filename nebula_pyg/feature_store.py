@@ -105,5 +105,17 @@ class NebulaFeatureStore(FeatureStore, ABC):
 
         return (num_nodes, feature_dim)
 
-    def get_all_tensor_attrs(self):
-        raise NotImplementedError
+    def get_all_tensor_attrs(self) -> list[TensorAttr]:
+        tags_result = self.gcilent.execute(f"USE {self.space}; SHOW TAGS;")
+        tags = []
+        for row in tags_result.rows():
+            tag_name = ValueWrapper(row.values[0]).cast()
+            tags.append(tag_name)
+        
+        attrs = []
+        for tag in tags:
+            schema = self.sclient._meta_cache.get_tag_schema(self.space, tag)
+            for col in schema.columns:
+                col_name = col.name.decode() if isinstance(col.name, bytes) else col.name
+                attrs.append(TensorAttr(tag, col_name))
+        return attrs
