@@ -65,29 +65,24 @@ class NebulaFeatureStore(FeatureStore, ABC):
 
     def _get_tensor(self, attr: TensorAttr, index=None, **kwargs):
         tag = attr.group_name
-        print(tag)
         prop = attr.attr_name
 
-        tag_indices = [idx for idx, (t, v) in self.idx_to_vid.items() if t == tag]
-        tag_indices = sorted(tag_indices)
-
-        N = len(tag_indices)
+        vid_to_idx = self.vid_to_idx[tag]    # {vid: idx}
+        N = len(vid_to_idx)
         result = [None] * N
-        
-        idx_map = {self.idx_to_vid[idx]: i for i, idx in enumerate(tag_indices)} 
 
         for part_id, batch in self.sclient.scan_vertex_async(
             self.space, tag, [prop], batch_size=4096
         ):
             for node in batch.as_nodes():
                 vid = node.get_id().cast()
-                tag_vid = (tag, vid)
-                if tag_vid in idx_map:
-                    idx = idx_map[tag_vid]
-                    props = node.properties(tag)
-                    if prop in props:
-                        val = props[prop].cast()
-                        result[idx] = val
+                if vid not in vid_to_idx:
+                    continue
+                idx = vid_to_idx[vid]
+                props = node.properties(tag)
+                if prop in props:
+                    val = props[prop].cast()
+                    result[idx] = val
 
         if index is not None:
             out = [result[i] for i in index]
