@@ -4,7 +4,9 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 import pickle
-from nebula_pyg.utils import scan_all_tag_vids
+import json
+
+from nebula_pyg.utils import scan_all_tag_vids, get_edge_type_groups
 from nebula3.Config import Config
 from nebula3.gclient.net import ConnectionPool
 from nebula3.sclient.GraphStorageClient import GraphStorageClient
@@ -14,6 +16,7 @@ def main():
 
     space = "basketballplayer"
     output = "snapshot_vid_to_idx.pkl"
+    output_json = "snapshot_vid_to_idx.json"
 
     config = Config()
     connection_pool = ConnectionPool()
@@ -37,9 +40,22 @@ def main():
         for vid in vid_list:
             vid_to_tag[vid] = tag
 
+    edge_type_groups = list(get_edge_type_groups(space, sclient, gclient, {"vid_to_tag": vid_to_tag}))
+
     with open(output, "wb") as f:
-        pickle.dump({"vid_to_idx": vid_to_idx, "idx_to_vid": idx_to_vid, "vid_to_tag": vid_to_tag}, f)
+        pickle.dump({"vid_to_idx": vid_to_idx, "idx_to_vid": idx_to_vid, "vid_to_tag": vid_to_tag, "edge_type_groups": edge_type_groups}, f)
     print(f"Snapshot saved to {output}")
+
+    snapshot_json = {
+        "vid_to_idx": vid_to_idx,
+        "idx_to_vid": idx_to_vid,
+        "vid_to_tag": vid_to_tag,
+        "edge_type_groups": [list(t) for t in edge_type_groups],
+    }
+
+    with open(output_json, "w", encoding="utf-8") as f:
+        json.dump(snapshot_json, f, indent=2, ensure_ascii=False)
+    print(f"Snapshot JSON saved to {output_json}")
 
 if __name__ == "__main__":
     main()
