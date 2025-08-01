@@ -7,15 +7,16 @@ from nebula_pyg.utils import split_batches
 from nebula_pyg.type_helper import get_feature_dim
 
 from nebula3.data.DataObject import ValueWrapper
+from nebula3.common.ttypes import PropertyType
 
 class NebulaFeatureStore(FeatureStore, ABC):
-    def __init__(self, gcilent, sclient, space, idx_to_vid, vid_to_idx):
+    def __init__(self, gcilent, sclient, space, snapshot):
         super().__init__()
         self.gcilent = gcilent
         self.sclient = sclient
         self.space = space
-        self.idx_to_vid = idx_to_vid
-        self.vid_to_idx = vid_to_idx
+        self.idx_to_vid = snapshot["idx_to_vid"]
+        self.vid_to_idx = snapshot["vid_to_idx"]
         
 
     def get_tensor(self, attr: TensorAttr, index=None, **kwargs):
@@ -89,6 +90,7 @@ class NebulaFeatureStore(FeatureStore, ABC):
         else:
             out = result
         out = [v if v is not None else 0 for v in out]
+        print("out:", out)
         return torch.tensor(out)
 
 
@@ -109,11 +111,11 @@ class NebulaFeatureStore(FeatureStore, ABC):
             f"USE {self.space};"
             "SHOW STATS;"
         )
-        print(stats_result)
+        print("stats_result:", stats_result)
         num_nodes = None
         # TODO: optimize the logic of getting the number of nodes, maybe only need to get the number of nodes of the tag
         for row in stats_result.rows():
-            print(row)
+            print("row:", row)
             row_values = row.values
             row_type = ValueWrapper(row_values[0]).cast()  # "Tag"、"Edge"、"Space"
             row_name = ValueWrapper(row_values[1]).cast()  # Sp. tag/edge/space
@@ -132,10 +134,12 @@ class NebulaFeatureStore(FeatureStore, ABC):
             if isinstance(col_name, bytes):
                 col_name = col_name.decode()
             if col_name == prop:
-                feature_dim = get_feature_dim(col)
+                feature_dim = int(get_feature_dim(col))
                 break
         if feature_dim is None:
             raise ValueError(f"Property {prop} not found in tag {tag} schema")
+
+        print(f"Feature size for {tag}.{prop}: (num_nodes={num_nodes}, feature_dim={feature_dim})")
 
         return (num_nodes, feature_dim)
 
@@ -151,8 +155,11 @@ class NebulaFeatureStore(FeatureStore, ABC):
             schema = self.sclient._meta_cache.get_tag_schema(self.space, tag)
             for col in schema.columns:
                 col_name = col.name.decode() if isinstance(col.name, bytes) else col.name
-                attrs.append(TensorAttr(tag, col_name))
+                # TODO: limit type(reconsider after vecotr available)
+                col_type = col.type.type if hasattr(col.type, 'type') else col.type
+                # Only keep numeric values
+                if col_type in (PropertyType.INT64, PropertyType.INT8, PropertyType.INT16,PropertyType.INT32, PropertyType.FLOAT, PropertyType.DOUBLE, PropertyType.BOOL):
+                    attrs.append(TensorAttr(tag, col_name))
+                else:
+                    print(f"[Skip] {tag}.{col_name} is of type {col_type}, which is not numeric")
         return attrs
-
-    def _multi_get_tensor(self, attrs: list[TensorAttr], index=None, **kwargs):
-        return [self._get_tensor(attr, index=index, **kwargs) for attr in attrs]
