@@ -12,6 +12,9 @@ from nebula3.gclient.net import ConnectionPool
 from nebula3.sclient.GraphStorageClient import GraphStorageClient
 from nebula3.mclient import MetaCache
 
+# TODO: 1.Wrap gen_snapshot into a function of class NebulaPyG, perhaps as a static function so that users don't have to worry about the pickle logic
+#       2.JSON is temporarily used to understand the structure
+
 def main():
 
     space = "basketballplayer"
