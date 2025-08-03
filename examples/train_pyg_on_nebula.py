@@ -9,11 +9,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-# 假定你已经有这两个类
 from nebula_pyg.graph_store import NebulaGraphStore
 from nebula_pyg.feature_store import NebulaFeatureStore
 
-# ============ 1. 初始化 Nebula 连接与 snapshot ============
 from nebula3.sclient.GraphStorageClient import GraphStorageClient
 from nebula3.mclient import MetaCache
 from nebula3.Config import Config
@@ -22,7 +20,6 @@ from nebula3.gclient.net import ConnectionPool
 
 def fetch_all_features(fs):
     feature_dict = {}
-    # player 用 '31'，team 无需特征
     try:
         player_feat = fs.get_tensor(TensorAttr('player', 'age'))
         player_feat = player_feat.view(-1, 1) if player_feat.dim() == 1 else player_feat
@@ -31,14 +28,12 @@ def fetch_all_features(fs):
     except Exception as e:
         print(f"[Warn] player 特征拉取失败: {e}")
 
-    # team 没有数值特征，可跳过
     return feature_dict
 
 
 def fetch_all_edge_indices(gs):
     """返回 {(src_tag, edge_name, dst_tag): edge_index_tensor}"""
     edge_index_dict = {}
-    # 获取所有边类型
     edge_attrs = gs.get_all_edge_attrs()  # List[EdgeAttr]
     for edge_attr in edge_attrs:
         # edge_attr.edge_type 必然是 (src_tag, edge_name, dst_tag)
@@ -49,7 +44,6 @@ def fetch_all_edge_indices(gs):
 
 
 
-# 参数
 SPACE = 'basketballplayer'
 USER = 'root'
 PASSWORD = 'nebula'
@@ -57,7 +51,6 @@ SNAPSHOT_PATH = 'snapshot_vid_to_idx.pkl'
 tag = "player"
 prop = "age"  
 
-# Nebula 连接（按你的项目实际调整）
 config = Config()
 connection_pool = ConnectionPool()
 connection_pool.init([("host.docker.internal", 9669)], config)
@@ -69,20 +62,16 @@ sclient = GraphStorageClient(meta_cache)
 with open(SNAPSHOT_PATH, "rb") as f:
     snapshot = pickle.load(f)
 
-# ============ 2. 初始化 FeatureStore & GraphStore ============
 fs = NebulaFeatureStore(gclient, sclient, SPACE, snapshot)
 gs = NebulaGraphStore(gclient, sclient, SPACE, snapshot)
 
-# ============ 3. 拉取全量特征和边结构 ============
-# 注意：这里你需要实现 FeatureStore/GraphStore 的 get_all_features/get_all_edge_index 方法
+
 attr = TensorAttr(group_name=tag, attr_name=prop)
-feature_dict = fetch_all_features(fs)      # {ntype: torch.Tensor}
-edge_index_dict = fetch_all_edge_indices(gs) # {(src, rel, dst): torch.LongTensor}
+feature_dict = fetch_all_features(fs)
+edge_index_dict = fetch_all_edge_indices(gs)
 
-# 假如有 label，也可以这样挂（你可以自定义获取方式）
-label_dict = fs.get_all_tensor_attrs() if hasattr(fs, 'get_all_tensor_attrs') else {}
 
-# ============ 4. 组装 HeteroData ============
+# 组装 HeteroData
 data = HeteroData(drop_last=True)
 for ntype, feats in feature_dict.items():
     data[ntype].x = feats
@@ -92,7 +81,7 @@ for (src, rel, dst), edge_index in edge_index_dict.items():
 print("edge_index_dict:", edge_index_dict)
 print('data:', data)
 
-# ============ 5. 简单 GNN 训练（以 player 类型为例） =============
+# GNN
 
 # 选用一种边关系和节点类型
 ntype = 'player'
@@ -123,7 +112,7 @@ print("labels.size():", y.size())
 # except Exception as e:
 #     print("[ERROR] RGCN 单元测试失败：", e)
 
-#定义模型
+# 定义模型
 class SimpleRGCN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_relations):
         super().__init__()

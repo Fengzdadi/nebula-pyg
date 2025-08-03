@@ -43,7 +43,7 @@ def main():
         for vid in vid_list:
             vid_to_tag[vid] = tag
 
-    edge_type_groups = list(get_edge_type_groups(space, sclient, gclient, {"vid_to_tag": vid_to_tag}))
+    edge_type_groups = list(get_edge_type_groups(gclient, sclient, space, {"vid_to_tag": vid_to_tag}))
 
     with open(output, "wb") as f:
         pickle.dump({"vid_to_idx": vid_to_idx, "idx_to_vid": idx_to_vid, "vid_to_tag": vid_to_tag, "edge_type_groups": edge_type_groups}, f)

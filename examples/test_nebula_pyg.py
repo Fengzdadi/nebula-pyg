@@ -2,7 +2,9 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import pytest
 import pickle
+import torch
 from nebula_pyg.nebula_pyg import NebulaPyG
 
 from nebula3.sclient.GraphStorageClient import GraphStorageClient
@@ -10,7 +12,7 @@ from nebula3.mclient import MetaCache
 from nebula3.Config import Config
 from nebula3.gclient.net import ConnectionPool
 
-from torch_geometric.data import TensorAttr
+from torch_geometric.data import TensorAttr, EdgeAttr
 
 SPACE = 'basketballplayer'
 USER = 'root'
