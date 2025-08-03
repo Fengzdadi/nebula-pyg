@@ -527,7 +527,6 @@ summary = "Python client for NebulaGraph v3"
 groups = ["default"]
 marker = "python_version >= \"3.11\" and python_version < \"3.13\""
 dependencies = [
-    "charset-normalizer>=3.0.1",
     "future>=0.18.0",
     "httplib2>=0.20.0",
     "httpx[http2]>=0.22.0",
