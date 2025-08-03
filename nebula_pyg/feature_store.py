@@ -1,16 +1,35 @@
-from abc import ABC
-
 from torch_geometric.data import FeatureStore, TensorAttr
+from abc import ABC
+from nebula3.common.ttypes import PropertyType
+from nebula3.data.DataObject import ValueWrapper
 import torch
 
-from nebula_pyg.utils import split_batches
-from nebula_pyg.type_helper import get_feature_dim
-
-from nebula3.data.DataObject import ValueWrapper
-from nebula3.common.ttypes import PropertyType
+from nebula_pyg.utils import get_feature_dim
 
 class NebulaFeatureStore(FeatureStore, ABC):
+    """
+    A PyG-compatible FeatureStore backed by NebulaGraph.
+
+    This class fetches vertex features from NebulaGraph using the storage client.
+    It supports lazy scanning and mapping of vertex IDs to PyG indices based on a snapshot.
+
+    Attributes:
+        gcilent: NebulaGraph graph client.
+        sclient: NebulaGraph storage client.
+        space (str): The name of the graph space.
+        idx_to_vid (dict): Mapping from tag name to {index: vid}.
+        vid_to_idx (dict): Mapping from tag name to {vid: index}.
+    """
     def __init__(self, gcilent, sclient, space, snapshot):
+        """
+        Initializes the FeatureStore with necessary clients and metadata.
+
+        Args:
+            gcilent: NebulaGraph graph client.
+            sclient: NebulaGraph storage client.
+            space (str): Graph space name.
+            snapshot (dict): Pre-scanned snapshot including ID mappings.
+        """
         super().__init__()
         self.gcilent = gcilent
         self.sclient = sclient
@@ -20,6 +39,16 @@ class NebulaFeatureStore(FeatureStore, ABC):
         
 
     def get_tensor(self, attr: TensorAttr, index=None, **kwargs):
+        """
+        Retrieves feature tensor for a given vertex property.
+
+        Args:
+            attr (TensorAttr): The target feature location (tag and property).
+            index (Optional[list[int]]): Indices to select from result. If None, return all.
+
+        Returns:
+            torch.Tensor: A tensor of features in the order of PyG node indices.
+        """
         return self._get_tensor(attr, index=index, **kwargs)
 
     # TODO: COO edge index
@@ -101,6 +130,15 @@ class NebulaFeatureStore(FeatureStore, ABC):
         raise NotImplementedError
 
     def get_tensor_size(self, attr: TensorAttr):
+        """
+        Returns the shape (N, D) of a specific tensor in the store.
+
+        Args:
+            attr (TensorAttr): The tensor's tag and property.
+
+        Returns:
+            Tuple[int, int]: (number of nodes, feature dimension)
+        """
         return self._get_tensor_size(attr)
 
     def _get_tensor_size(self, attr: TensorAttr):
@@ -144,6 +182,14 @@ class NebulaFeatureStore(FeatureStore, ABC):
         return (num_nodes, feature_dim)
 
     def get_all_tensor_attrs(self) -> list[TensorAttr]:
+        """
+        Returns all valid (numeric) tensor attributes found in the graph space.
+
+        Only numeric scalar types are retained to ensure PyG compatibility.
+
+        Returns:
+            List[TensorAttr]: List of all (tag, property) pairs usable as tensors.
+        """
         tags_result = self.gcilent.execute(f"USE {self.space}; SHOW TAGS;")
         tags = []
         for row in tags_result.rows():
