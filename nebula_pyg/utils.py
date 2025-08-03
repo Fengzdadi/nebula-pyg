@@ -77,7 +77,7 @@ def get_edge_type_groups(gclient, sclient, space, snapshot):
     return groups
 
 
-def build_edge_index_dict(space, sclient, gclient, snapshot):
+def build_edge_index_dict(gclient, sclient, space, snapshot):
     """
     Builds a PyG-compatible edge_index_dict using NebulaGraph data.
 

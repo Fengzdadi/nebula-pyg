@@ -4,7 +4,7 @@ from nebula3.common.ttypes import PropertyType
 from nebula3.data.DataObject import ValueWrapper
 import torch
 
-from nebula_pyg.utils import get_feature_dim
+from nebula_pyg.type_helper import get_feature_dim
 
 class NebulaFeatureStore(FeatureStore, ABC):
     """
