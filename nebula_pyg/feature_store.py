@@ -1,5 +1,5 @@
 from torch_geometric.data import FeatureStore, TensorAttr
-from abc import ABC
+from .base_store import NebulaStoreBase
 from nebula3.common.ttypes import PropertyType
 from nebula3.data.DataObject import ValueWrapper
 import torch
@@ -8,7 +8,7 @@ import time
 
 from nebula_pyg.type_helper import get_feature_dim
 
-class NebulaFeatureStore(FeatureStore, ABC):
+class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
     """
     A PyG-compatible FeatureStore backed by NebulaGraph.
 
@@ -22,7 +22,9 @@ class NebulaFeatureStore(FeatureStore, ABC):
         idx_to_vid (dict): Mapping from tag name to {index: vid}.
         vid_to_idx (dict): Mapping from tag name to {vid: index}.
     """
-    def __init__(self, gcilent, connection_pool, sclient, space, snapshot, expose: str = "x"):
+    def __init__(self, gclient, pool_factory, sclient_factory, space, snapshot,
+                 username: str = "root", password: str = "nebula",
+                 expose: str = "x"):
         """
         Initializes the FeatureStore with necessary clients and metadata.
 
@@ -32,22 +34,15 @@ class NebulaFeatureStore(FeatureStore, ABC):
             space (str): Graph space name.
             snapshot (dict): Pre-scanned snapshot including ID mappings.
         """
-        super().__init__()
-        self.gcilent = gcilent
-        self.connection_pool = connection_pool
-        self.sclient = sclient
-        self.space = space
-        self.idx_to_vid = snapshot["idx_to_vid"]
-        self.vid_to_idx = snapshot["vid_to_idx"]
+        FeatureStore.__init__(self)
+        NebulaStoreBase.__init__(self, pool_factory, sclient_factory, space, username, password)
+        self.gclient = gclient
 
         assert expose in ("x", "feats")
         self.expose = expose
-
-        self._numeric_cols_by_tag: dict[str, list[str]] = {}
-        self._x_cols: dict[str, list[str]] = {}
-        self._reserved_cols = {"x", "y", "label", "category", "target"}
+        self.idx_to_vid = snapshot["idx_to_vid"]  # dict[tag] -> {idx: vid}
+        self.vid_to_idx = snapshot["vid_to_idx"] 
         
-
     def get_tensor(self, attr: TensorAttr, index=None, **kwargs):
         """
         Retrieves feature tensor for a given vertex property.
@@ -199,12 +194,10 @@ class NebulaFeatureStore(FeatureStore, ABC):
             cols_expr = ", ".join([f"{tag}.{c}" for c in feat_names])
             vid_list_str = ", ".join(f'"{v}"' for v in vids)
             ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {cols_expr}, id(vertex)'
+            
+            result = self._execute(ngql)
 
-            session = self.connection_pool.get_session("root", "nebula")
-            try:
-                result = session.execute(f'USE {self.space}; {ngql}')
-            finally:
-                session.release()
+            # print("result:", result)
 
             D = len(feat_names)
             m = {}
@@ -231,11 +224,9 @@ class NebulaFeatureStore(FeatureStore, ABC):
 
         vid_list_str = ", ".join(f'"{v}"' for v in vids) 
         ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {tag}.{prop}, id(vertex)'
-        session = self.connection_pool.get_session("root", "nebula")
-        try:
-            result = session.execute(f'USE {self.space}; {ngql}')
-        finally:
-            session.release()
+        
+        result = self._execute(ngql)
+
 
         # TODO: 
         # session = self.connection_pool.get_session("root", "nebula")
@@ -358,7 +349,7 @@ class NebulaFeatureStore(FeatureStore, ABC):
         Returns:
             List[TensorAttr]: List of all (tag, property) pairs usable as tensors.
         """
-        tags_result = self.gcilent.execute(f"USE {self.space}; SHOW TAGS;")
+        tags_result = self._execute(f"USE {self.space}; SHOW TAGS;")
         tags = [ValueWrapper(r.values[0]).cast() for r in tags_result.rows()]
         attrs: list[TensorAttr] = []
 
