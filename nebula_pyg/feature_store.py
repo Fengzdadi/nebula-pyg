@@ -22,7 +22,7 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         idx_to_vid (dict): Mapping from tag name to {index: vid}.
         vid_to_idx (dict): Mapping from tag name to {vid: index}.
     """
-    def __init__(self, gclient, pool_factory, sclient_factory, space, snapshot,
+    def __init__(self, pool_factory, sclient_factory, space, snapshot,
                  username: str = "root", password: str = "nebula",
                  expose: str = "x"):
         """
@@ -36,7 +36,6 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         """
         FeatureStore.__init__(self)
         NebulaStoreBase.__init__(self, pool_factory, sclient_factory, space, username, password)
-        self.gclient = gclient
 
         assert expose in ("x", "feats")
         self.expose = expose
