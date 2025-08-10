@@ -2,6 +2,7 @@ from nebula3.gclient.net import ConnectionPool
 from nebula3.Config import Config
 from nebula3.sclient.GraphStorageClient import GraphStorageClient
 from nebula3.data.DataObject import ValueWrapper
+from typing import Dict, List, Tuple, Callable, Optional, Iterable
 
 import torch
 
@@ -22,7 +23,12 @@ def split_batches(lst, batch_size):
         yield lst[i:i + batch_size]
 
 
-def scan_all_tag_vids(space, gclient, sclient, batch_size=4096):
+def scan_all_tag_vids(
+        space: str,
+        session,
+        sclient,
+        batch_size: int = 4096,
+) -> Tuple[Dict[str, Dict[str, int]], Dict[str, Dict[int, str]], Dict[str, str]]:
     """
     Scans all vertex tags in the given Nebula space and collects all VIDs.
 
@@ -36,19 +42,36 @@ def scan_all_tag_vids(space, gclient, sclient, batch_size=4096):
         dict: Mapping from tag name to list of vertex IDs.
               Format: { tag: [vid1, vid2, ...] }
     """
-    gclient.execute(f"USE {space};")
-    tags_result = gclient.execute("SHOW TAGS;")
+    session.execute(f"USE {space};")
+    tags_result = session.execute("SHOW TAGS;")
     tags = [ValueWrapper(row.values[0]).cast() for row in tags_result.rows()]
-    tag_vids = {tag: [] for tag in tags}
+
+    vid_to_idx: Dict[str, Dict[str, int]] = {t: {} for t in tags}
+    idx_to_vid: Dict[str, Dict[int, str]] = {t: {} for t in tags}
+    vid_to_tag: Dict[str, str] = {}
+
     for tag in tags:
-        for part_id, batch in sclient.scan_vertex_async(space, tag, prop_names=[], batch_size=batch_size):
+        i = 0
+        for _part_id, batch in sclient.scan_vertex_async(space, tag, prop_names=[], batch_size=batch_size):
             for node in batch.as_nodes():
                 vid = node.get_id().cast()
-                tag_vids[tag].append(vid)
-    return tag_vids  # dict: {tag: [vid1, vid2, ...]}
+                vid_to_idx[tag][vid] = i
+                idx_to_vid[tag][i] = vid
+                vid_to_tag[vid] = tag
+                i += 1
+
+    return vid_to_idx, idx_to_vid, vid_to_tag
 
 
-def get_edge_type_groups(gclient, sclient, space, snapshot):
+def get_edge_type_groups(
+    session,                       # ← graphd session（已登录）
+    sclient,                       # ← GraphStorageClient
+    space: str,
+    snapshot: Dict,                # 需要包含 'vid_to_tag'
+    batch_size: int = 4096,
+    sample_per_edge: int = 1,      # 每种 edge_name 抽样多少条边来推断三元组
+    edge_names: Optional[Iterable[str]] = None,  # 如已知可直接传，省一次 SHOW
+) -> List[Tuple[str, str, str]]:
     """
     Infers actual (src_tag, edge_type, dst_tag) triples present in the graph.
 
@@ -63,18 +86,36 @@ def get_edge_type_groups(gclient, sclient, space, snapshot):
     Returns:
         set: A set of 3-tuples (src_tag, edge_type, dst_tag).
     """
+    session.execute(f"USE {space};")
+    if edge_names is None:
+        rs = session.execute("SHOW EDGES;")
+        edge_names = [ValueWrapper(r.values[0]).cast() for r in rs.rows()]
+
+    vid_to_tag: Dict[str, str] = snapshot.get("vid_to_tag", {})
     groups = set()
-    edge_types = [ValueWrapper(row.values[0]).cast() for row in gclient.execute(f"USE {space}; SHOW EDGES;").rows()]
-    for edge_type in edge_types:
-        for part_id, batch in sclient.scan_edge_async(space, edge_type, batch_size=4096):
+
+    for edge_name in edge_names:
+        found = 0
+        for _part_id, batch in sclient.scan_edge_async(
+            space,
+            edge_name,
+            prop_names=[],
+            batch_size=batch_size,
+        ):
             for rel in batch.as_relationships():
-                src_vid = rel.start_vertex_id().cast()
-                dst_vid = rel.end_vertex_id().cast()
-                src_tag = snapshot["vid_to_tag"].get(src_vid, None)
-                dst_tag = snapshot["vid_to_tag"].get(dst_vid, None)
+                svid = rel.start_vertex_id().cast()
+                dvid = rel.end_vertex_id().cast()
+                src_tag = vid_to_tag.get(svid)
+                dst_tag = vid_to_tag.get(dvid)
                 if src_tag is not None and dst_tag is not None:
-                    groups.add((src_tag, edge_type, dst_tag))
-    return groups
+                    groups.add((src_tag, edge_name, dst_tag))
+                    found += 1
+                    if found >= sample_per_edge:
+                        break
+            if found >= sample_per_edge:
+                break
+
+    return sorted(groups)
 
 
 def build_edge_index_dict(gclient, sclient, space, snapshot):

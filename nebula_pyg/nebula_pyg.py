@@ -3,6 +3,11 @@ from nebula_pyg.feature_store import NebulaFeatureStore
 
 from nebula_pyg.utils import scan_all_tag_vids, get_edge_type_groups
 
+from nebula3.gclient.net import ConnectionPool
+from nebula3.sclient.GraphStorageClient import GraphStorageClient
+
+from typing import Dict, List, Tuple, Callable, Optional, Iterable
+
 class NebulaPyG:
     """
     An interface class that integrates NebulaGraph with PyTorch Geometric (PyG).
@@ -19,7 +24,7 @@ class NebulaPyG:
         snapshot (dict): A dictionary holding pre-scanned graph metadata
                          such as vid mappings and edge type groups.
     """
-    def __init__(self, gclient, sclient, space, snapshot = None):
+    def __init__(self, pool_factory, sclient_factory, space: str, username: str = "root", password: str = "nebula", snapshot: dict | None = None):
         """
         Initializes the NebulaPyG interface with NebulaGraph clients and graph space.
 
@@ -30,17 +35,31 @@ class NebulaPyG:
             snapshot (dict, optional): A precomputed snapshot of the graph structure.
                                        If not provided, one will be generated.
         """
-        self.gclient = gclient
-        self.sclient = sclient
+        self.pool_factory = pool_factory
+        self.sclient_factory = sclient_factory
         self.space = space
+        self.username = username
+        self.password = password
+
         if snapshot is None:
-            self.snapshot = self.create_snapshot(gclient, sclient, space)
+            self.snapshot = self.create_snapshot(
+                self.pool_factory, self.sclient_factory, self.space,
+                self.username, self.password,  batch_size = 4096
+            )
         else:
             self.snapshot = snapshot
 
     # TODO: Consider the design logic of snapshot again
     @classmethod
-    def create_snapshot(cls, gclient, sclient, space):
+    def create_snapshot(
+            self,
+            pool_factory: Callable[[], "ConnectionPool"],
+            sclient_factory: Callable[[], "GraphStorageClient"],
+            space: str,
+            username: str = "root",
+            password: str = "nebula",
+            batch_size: int = 4096,
+    ) -> dict:
         """
         Scans the graph space to build a snapshot containing index and structure metadata.
 
@@ -59,14 +78,17 @@ class NebulaPyG:
                 - 'vid_to_tag': mapping from vid to its tag (vertex type).
                 - 'edge_type_groups': list of (src_tag, edge_type, dst_tag) triples.
         """
-        tag_vids = scan_all_tag_vids(space, gclient, sclient)
-        vid_to_idx = {tag: {vid: idx for idx, vid in enumerate(tag_vids[tag])} for tag in tag_vids}
-        idx_to_vid = {tag: {idx: vid for idx, vid in enumerate(tag_vids[tag])} for tag in tag_vids}
-        vid_to_tag = {}
-        for tag, vid_list in tag_vids.items():
-            for vid in vid_list:
-                vid_to_tag[vid] = tag
-        edge_type_groups = list(get_edge_type_groups(gclient, sclient, space, {"vid_to_tag": vid_to_tag}))
+        pool = pool_factory()
+        sess = pool.get_session(username, password)
+        sclient = sclient_factory()
+
+        vid_to_idx, idx_to_vid, vid_to_tag = scan_all_tag_vids(
+            space, sess, sclient, batch_size=batch_size
+        )
+        edge_type_groups = get_edge_type_groups(
+            sess, sclient, space, vid_to_tag, batch_size=batch_size
+        )
+
         return {
             "vid_to_idx": vid_to_idx,
             "idx_to_vid": idx_to_vid,
@@ -86,6 +108,6 @@ class NebulaPyG:
                 A tuple of remote PyG FeatureStore and GraphStore.
         """
         return (
-            NebulaFeatureStore(self.gclient, self.sclient, self.space, self.snapshot),
-            NebulaGraphStore(self.gclient, self.sclient, self.space, self.snapshot)
+            NebulaFeatureStore(self.pool_factory, self.sclient_factory, self.space, self.snapshot, self.username, self.password),
+            NebulaGraphStore(self.pool_factory, self.sclient_factory, self.space, self.snapshot, self.username, self.password)
         )
