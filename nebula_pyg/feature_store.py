@@ -10,29 +10,39 @@ from nebula_pyg.type_helper import get_feature_dim
 
 class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
     """
-    A PyG-compatible FeatureStore backed by NebulaGraph.
+    PyG-compatible FeatureStore backed by NebulaGraph with lazy, process-aware
+    connection/session management provided by `NebulaStoreBase`.
 
-    This class fetches vertex features from NebulaGraph using the storage client.
-    It supports lazy scanning and mapping of vertex IDs to PyG indices based on a snapshot.
+    Key behaviors:
+      - Uses `pool_factory` and `sclient_factory` for lazy initialization of the
+        graph query pool and storage client. Sessions are thread-local and rebuilt
+        after process changes.
+      - Maps Nebula VIDs to PyG indices via a pre-built snapshot and reads vertex
+        properties either by full storage scan or targeted queries.
 
-    Attributes:
-        gcilent: NebulaGraph graph client.
-        sclient: NebulaGraph storage client.
-        space (str): The name of the graph space.
-        idx_to_vid (dict): Mapping from tag name to {index: vid}.
-        vid_to_idx (dict): Mapping from tag name to {vid: index}.
+    Exposure policy:
+      - expose="x": only expose the synthetic "x" per tag, which is assembled by
+        concatenating numeric columns (no individual "feats" are exposed).
+      - expose="feats": only expose raw individual numeric properties ("feats"),
+        without assembling "x".
+
     """
     def __init__(self, pool_factory, sclient_factory, space, snapshot,
                  username: str = "root", password: str = "nebula",
                  expose: str = "x"):
         """
-        Initializes the FeatureStore with necessary clients and metadata.
+        Initialize the FeatureStore with factories and metadata snapshot.
 
         Args:
-            gcilent: NebulaGraph graph client.
-            sclient: NebulaGraph storage client.
-            space (str): Graph space name.
-            snapshot (dict): Pre-scanned snapshot including ID mappings.
+          pool_factory: Callable that returns a `ConnectionPool`.
+          sclient_factory: Callable that returns a `GraphStorageClient`.
+          space: Nebula space name.
+          snapshot: Dict containing at least 'vid_to_idx' and 'idx_to_vid' per tag.
+          username: Nebula username for session creation.
+          password: Nebula password for session creation.
+          expose (str): Exposure mode, either "x" or "feats".
+            - "x": return a single synthetic feature per tag named "x" (concatenation).
+            - "feats": return individual numeric properties as features.
         """
         FeatureStore.__init__(self)
         NebulaStoreBase.__init__(self, pool_factory, sclient_factory, space, username, password)
@@ -44,14 +54,26 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         
     def get_tensor(self, attr: TensorAttr, index=None, **kwargs):
         """
-        Retrieves feature tensor for a given vertex property.
+        Retrieve a tensor for the specified attribute.
+
+        Behavior:
+          - If attr.attr_name == "x": assemble and return the synthetic feature
+            matrix for the tag (concatenate numeric columns in a fixed order).
+          - If attr.attr_name == "y": alias to the tag's "label" property.
+          - Otherwise: return the raw property ("feats") as a 1-D tensor.
+
+        The method dispatches to either a full storage scan or a targeted query:
+          - Full request (no index or index covers all nodes): `_get_tensor_by_scan`.
+          - Partial request (subset of indices): `_get_tensor_by_query`.
 
         Args:
-            attr (TensorAttr): The target feature location (tag and property).
-            index (Optional[list[int]]): Indices to select from result. If None, return all.
+          attr: TensorAttr with (group_name=tag, attr_name in {"x","y",prop}).
+          index: Optional sequence of PyG node indices for sub-selection.
 
         Returns:
-            torch.Tensor: A tensor of features in the order of PyG node indices.
+          torch.Tensor:
+            - shape (N, D) for "x"
+            - shape (N,) for "y" or a raw property
         """
         return self._get_tensor(attr, index=index, **kwargs)
 
@@ -98,6 +120,12 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
     #     return torch.tensor(values)
 
     def _get_tensor(self, attr: TensorAttr, **kwargs):
+        """
+        Internal dispatcher selecting between scan or query path.
+
+        - Full request (index is None or covers all nodes): `_get_tensor_by_scan`.
+        - Partial request (subset of indices): `_get_tensor_by_query`.
+        """
         tag = attr.group_name
         prop = attr.attr_name
         index = attr.index
@@ -114,6 +142,16 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
 
     def _get_tensor_by_scan(self, attr: TensorAttr, **kwargs):
+        """
+        Full-range path using storage scan.
+
+        For "x": scan all numeric columns (`self._x_cols[tag]`), assemble a dense
+        (N, D) matrix ordered by PyG indices. Bool values are cast to int.
+        For "y": redirect to the "label" property.
+        For a raw property: scan that single column and return a length-N vector.
+
+        Missing values are filled with 0 to keep tensors dense.
+        """
         tag = attr.group_name
         prop = attr.attr_name
 
@@ -177,6 +215,17 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         
 
     def _get_tensor_by_query(self, attr: TensorAttr):
+        """
+        Partial-range path using targeted FETCH queries.
+
+        Steps:
+          1) Map requested PyG indices to VIDs via `self.idx_to_vid[tag]`.
+          2) For "x": FETCH all x-cols for the selected VIDs and assemble (M, D).
+          3) For "y": alias to "label".
+          4) For a raw property: FETCH that single column, return length-M vector.
+
+        Missing values and booleans are normalized (None -> 0, bool -> int).
+        """
         tag = attr.group_name
         prop = attr.attr_name
         index = attr.index
@@ -226,14 +275,6 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         
         result = self._execute(ngql)
 
-
-        # TODO: 
-        # session = self.connection_pool.get_session("root", "nebula")
-        # result = session.execute(f'USE {self.space}; {ngql}')
-        # session.release()
-        # # result = self.gcilent.execute(f'USE {self.space}; {ngql}')
-        # rows = result.rows()
-
         m = {}
         for row in result.rows():
             vals = row.values
@@ -266,13 +307,14 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
     def get_tensor_size(self, attr: TensorAttr):
         """
-        Returns the shape (N, D) of a specific tensor in the store.
+        Return the shape (N, D) for a given tensor.
+
+        - "x": D = number of numeric columns for the tag (excluding reserved ones).
+        - "y": D = 1, uses "label" property.
+        - other: D = feature dim from tag schema.
 
         Args:
-            attr (TensorAttr): The tensor's tag and property.
-
-        Returns:
-            Tuple[int, int]: (number of nodes, feature dimension)
+            attr: TensorAttr with tag and property name ("x", "y", or raw property).
         """
         return self._get_tensor_size(attr)
 
@@ -318,6 +360,7 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
     def _get_tensor_size(self, attr: TensorAttr):
         tag = attr.group_name
+        # TODO:
         prop = "label" if attr.attr_name == "y" else attr.attr_name
 
         num_nodes = len(self.vid_to_idx[tag])
@@ -341,12 +384,14 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
     def get_all_tensor_attrs(self) -> list[TensorAttr]:
         """
-        Returns all valid (numeric) tensor attributes found in the graph space.
+        Enumerate all valid tensor attributes in this space based on the exposure policy.
 
-        Only numeric scalar types are retained to ensure PyG compatibility.
+        - If expose="feats": add a TensorAttr for each numeric column.
+        - If expose="x": add only one synthetic "x" attr per tag.
+        - Always add "y" if "label" exists.
 
         Returns:
-            List[TensorAttr]: List of all (tag, property) pairs usable as tensors.
+            List[TensorAttr]: All available (tag, property) pairs for features.
         """
         tags_result = self._execute(f"USE {self.space}; SHOW TAGS;")
         tags = [ValueWrapper(r.values[0]).cast() for r in tags_result.rows()]
@@ -373,6 +418,7 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
 
     def _collect_numeric_cols(self, tag):
+        """Return sorted numeric property names from tag schema."""
         schema = self.sclient._meta_cache.get_tag_schema(self.space, tag)
         cols = []
         # TODO: limit type(reconsider after vector available)
