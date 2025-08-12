@@ -6,6 +6,25 @@ from abc import ABC
 from typing import Callable, Optional
 
 class NebulaStoreBase(ABC):
+    """
+    Base class for NebulaGraph-based stores with process/thread-safe connection
+    and session lifecycle management.
+
+    This class handles:
+      - Lazy initialization of the graph query connection pool and storage client.
+      - Automatic session re-creation when processes or threads change.
+      - Thread-local session storage for concurrent operations.
+      - Utilities for executing NGQL with automatic space selection.
+      - Optional collection and caching of numeric property columns.
+
+    Args:
+        pool_factory: Callable returning a new ConnectionPool instance.
+        sclient_factory: Callable returning a new GraphStorageClient instance (optional).
+        space: Name of the NebulaGraph space to operate on.
+        username: NebulaGraph username (default: "root").
+        password: NebulaGraph password (default: "nebula").
+        missing_value: Default value to replace None for scalar normalization.
+    """
     def __init__(
         self,
         pool_factory: Callable[[], "ConnectionPool"],
@@ -21,33 +40,49 @@ class NebulaStoreBase(ABC):
         self.username = username
         self.password = password
 
-        # 懒创建：不要在 __init__ 里建连接
+        # Lazy creation:
         self._pool = None
         self._sclient = None
         self._sess_local = threading.local()
         self._pid = os.getpid()
 
-        # 公共缓存/配置
+        # Public configuration
         self._numeric_cols_by_tag: dict[str, list[str]] = {}
         self._x_cols: dict[str, list[str]] = {}
         self._reserved_cols = {"x", "y", "label", "category", "target"}
         self._missing_value = missing_value
 
-    # ---------- 生命周期与（重）建 ----------
+    # ---------- Lifecycle management ----------
     def _ensure_pool(self):
-        """确保当前进程内已创建 pool/sclient；若进程变更则重建。"""
+        """
+        Ensure the connection pool and storage client are initialized in the current process.
+
+        If the process ID has changed (e.g., after forking) or no pool exists, both
+        the pool and storage client are re-created, and thread-local sessions reset.
+
+        Returns:
+            ConnectionPool: The active pool instance.
+        """
         cur_pid = os.getpid()
         if (self._pool is None) or (self._pid != cur_pid):
-            # 旧进程的资源作废
+           # Invalidate old process resources
             self._release_session_only()
             self._pool = self._pool_factory()
             self._sclient = self._sclient_factory() if self._sclient_factory else None
-            self._sess_local = threading.local()  # 线程隔离重置
+            self._sess_local = threading.local()  # Reset thread isolation
             self._pid = cur_pid
         return self._pool
 
     def _ensure_session(self):
-        """线程本地的 session，懒创建；进程切换时自动失效重建。"""
+        """
+        Ensure a thread-local session exists for the current thread.
+
+        Creates a new session if one is not available, or reinitializes it after
+        a process change.
+
+        Returns:
+            Session: Active NebulaGraph session.
+        """
         self._ensure_pool()
         sess = getattr(self._sess_local, "sess", None)
         if sess is None:
@@ -56,24 +91,47 @@ class NebulaStoreBase(ABC):
         return sess
 
     def _ensure_session_fast(self):
-        # 99% 的请求会命中这里：已有 sess，且 pid 未变
+        """
+        Fast path for retrieving the current thread's session.
+
+        Returns the existing session if:
+          - It exists in thread-local storage.
+          - The process ID hasn't changed.
+          - The pool is still available.
+
+        Otherwise, falls back to `_ensure_session()` for full checks.
+
+        Returns:
+            Session: Active NebulaGraph session.
+        """
         sess = getattr(self._sess_local, "sess", None)
         if sess is not None and self._pid == os.getpid() and self._pool is not None:
             return sess
-        # 否则再走完整的 _ensure_session（含进程切换处理/懒创建）
         return self._ensure_session()
 
-    # ---------- 执行 ----------
+    # ---------- Execution  ----------
     def _execute(self, ngql: str, check: bool = True):
         """
-        统一执行入口：自动 USE <space>; 失败自动重建一次；可选错误检查。
-        返回 nebula3.ResultSet
+        Execute an NGQL statement in the current space, with automatic session handling.
+
+        Automatically prepends `USE <space>;` to the query. If the session fails,
+        it will be rebuilt once before retrying.
+
+        Args:
+            ngql: NGQL query string.
+            check: Whether to raise an exception if execution fails.
+
+        Returns:
+            nebula3.ResultSet: The execution result.
+
+        Raises:
+            RuntimeError: If `check` is True and execution fails.
         """
         sess = self._ensure_session_fast()
         try:
             result = sess.execute(f'USE {self.space}; {ngql}')
         except Exception:
-            # session 失效，重建后重试一次
+            # Session failed, rebuild and retry
             self._rebuild_session()
             sess = self._ensure_session_fast()
             result = sess.execute(f'USE {self.space}; {ngql}')
@@ -87,8 +145,13 @@ class NebulaStoreBase(ABC):
             )
         return result
 
-    # ---------- 清理 ----------
+    # ---------- Cleanup ----------
     def _release_session_only(self):
+        """
+        Release only the current thread's session.
+
+        Leaves the connection pool intact.
+        """
         sess = getattr(self._sess_local, "sess", None)
         if sess is not None:
             try:
@@ -99,31 +162,51 @@ class NebulaStoreBase(ABC):
                 self._sess_local.sess = None
 
     def _rebuild_session(self):
-        """仅重建当前线程的 session（pool 保持）。"""
+        """
+        Rebuild the current thread's session while keeping the pool.
+        """
         self._release_session_only()
 
     def close(self):
-        """手动关闭（训练结束时可调用）。"""
+        """
+        Manually close the store (e.g., at the end of training).
+
+        Releases the current session and drops the pool and storage client references.
+        """
         self._release_session_only()
         self._pool = None
         self._sclient = None
 
-    # ---------- 进程间序列化 ----------
+    # ---------- Process serialization ----------
     def __getstate__(self):
+        """
+        Remove live connections and sessions when pickling.
+
+        This avoids carrying over active resources into child processes.
+        """
         d = self.__dict__.copy()
-        # 不把活连接/会话带进子进程
         d["_pool"] = None
         d["_sclient"] = None
         d["_sess_local"] = None
         return d
 
     def __setstate__(self, d):
+        """
+        Restore state after unpickling, reinitializing thread-local storage.
+        """
         self.__dict__.update(d)
         self._sess_local = threading.local()
         self._pid = os.getpid()
 
-    # ---------- 公共工具（可在子类里用） ----------
+    # ---------- Utility methods ----------
+    # TODO: The methods in FeatureStore and GraphStore have not been replaced yet.
+    #       Consider abstracting from it/don't abstract from it.
     def _normalize_scalar(self, v):
+        """
+        Normalize a scalar value.
+
+        Replaces None with `self._missing_value`, converts bool to int, leaves others unchanged.
+        """
         if v is None:
             return self._missing_value
         if isinstance(v, bool):
@@ -139,10 +222,15 @@ class NebulaStoreBase(ABC):
         return x_cols
 
     def _collect_numeric_cols(self, tag: str) -> list[str]:
-        """建议子类覆写：默认依赖 self._sclient._meta_cache。"""
+        """
+        Collect numeric columns for a given tag.
+
+        Default implementation depends on `self._sclient._meta_cache`.
+        Subclasses should override this method to customize numeric column collection.
+        """
         raise NotImplementedError("Subclasses should implement _collect_numeric_cols(tag).")
 
-    # 便捷访问（给子类用）
+    # Properties 
     @property
     def pool(self):
         self._ensure_pool()
