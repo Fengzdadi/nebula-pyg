@@ -8,6 +8,8 @@ import time
 
 from nebula_pyg.type_helper import get_feature_dim
 
+Y_CANDIDATES = ("label", "y", "target", "category")
+
 class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
     """
     PyG-compatible FeatureStore backed by NebulaGraph with lazy, process-aware
@@ -188,7 +190,11 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
             return torch.as_tensor(result) # as_tensor() is a shallow copy
 
         if prop == "y":
-            return self._get_tensor_by_scan(TensorAttr(tag, "label", index=attr.index))
+            numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)
+            y_prop = self._y_prop(tag, numeric_cols)
+            if y_prop is None:
+                raise ValueError(f"No usable label column for tag {tag} among {Y_CANDIDATES}")
+            return self._get_tensor_by_scan(TensorAttr(tag, y_prop, index=attr.index))
 
         result = [None] * N
 
@@ -267,8 +273,11 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
         # TODO
         if prop == "y":
-            return self._get_tensor_by_query(TensorAttr(tag, "label", index=index))
-
+            numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)
+            y_prop = self._y_prop(tag, numeric_cols)
+            if y_prop is None:
+                raise ValueError(f"No usable label column for tag {tag} among {Y_CANDIDATES}")
+            return self._get_tensor_by_query(TensorAttr(tag, y_prop, index=index))
 
         vid_list_str = ", ".join(f'"{v}"' for v in vids) 
         ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {tag}.{prop}, id(vertex)'
@@ -361,7 +370,13 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
     def _get_tensor_size(self, attr: TensorAttr):
         tag = attr.group_name
         # TODO:
-        prop = "label" if attr.attr_name == "y" else attr.attr_name
+        if attr.attr_name == "y":
+            numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)
+            prop = self._y_prop(tag, numeric_cols)
+            if prop is None:
+                raise ValueError(f"No usable label column for tag {tag} among {Y_CANDIDATES}")
+        else:
+            prop = attr.attr_name
 
         num_nodes = len(self.vid_to_idx[tag])
 
@@ -411,7 +426,8 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
                 if x_cols:  
                     attrs.append(TensorAttr(tag, "x"))
 
-            if "label" in numeric_cols:
+            y_prop = self._y_prop(tag, numeric_cols)
+            if y_prop is not None:
                 attrs.append(TensorAttr(tag, "y"))
 
         return attrs
@@ -432,3 +448,8 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
                 cols.append(name)
         cols.sort()
         return cols
+
+    def _y_prop(self, tag: str, numeric_cols: list[str]) -> str | None:
+        """Return the first existing y-like column for this tag."""
+        return next((c for c in Y_CANDIDATES if c in numeric_cols), None)
+
