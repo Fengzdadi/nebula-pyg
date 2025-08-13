@@ -7,18 +7,27 @@ from .base_store import NebulaStoreBase
 
 class NebulaGraphStore(NebulaStoreBase, GraphStore):
     """
-    A PyG-compatible GraphStore that fetches edge indices from NebulaGraph.
+    PyG-compatible GraphStore that materializes edge indices from NebulaGraph.
 
-    This class enables integration of NebulaGraph's edge structure with
-    PyTorch Geometric, by mapping edge types and vertex IDs into index-based COO format.
+    This adapter reads edges from Nebula storaged via batch scans and converts
+    them into index-based COO tensors using tag-scoped VID→index mappings
+    supplied by the snapshot.
+
+    Highlights:
+      - Snapshot-driven indexing: `vid_to_idx` / `idx_to_vid` are provided per tag.
+      - COO-only: returns `torch.LongTensor` of shape [2, num_edges].
+      - Lazy & multi-process safe: connections are created on first use by the
+        base class (`NebulaStoreBase`), avoiding FD sharing across forked workers.
+      - Property-agnostic: edge properties are ignored; only endpoints are read.
 
     Attributes:
-        gclient: NebulaGraph graph client.
-        sclient: NebulaGraph storage client.
-        space (str): NebulaGraph space to operate in.
-        idx_to_vid (dict): Mapping from tag -> {index -> vid}.
-        vid_to_idx (dict): Mapping from tag -> {vid -> index}.
-        edge_type_groups (list): List of (src_tag, edge_type, dst_tag) triples.
+        pool_factory: Factory returning a ConnectionPool (graphd).
+        sclient_factory: Factory returning a GraphStorageClient (storaged).
+        space (str): Target NebulaGraph space.
+        idx_to_vid (dict[str, dict[int, str]]): Per-tag index → VID.
+        vid_to_idx (dict[str, dict[str, int]]): Per-tag VID → index.
+        edge_type_groups (Iterable[tuple[str, str, str]]): All (src_tag, edge_name, dst_tag).
+        default_batch_size (int): Default batch size for storage scans.
     """
 
     def __init__(
@@ -32,13 +41,21 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
             default_batch_size: int = 4096,
     ):
         """
-        Initializes the GraphStore with NebulaGraph clients and metadata snapshot.
+        Initialize the GraphStore with connection factories and a metadata snapshot.
+
+        The snapshot is expected to contain:
+          - "idx_to_vid": {tag: {idx: vid}}
+          - "vid_to_idx": {tag: {vid: idx}}
+          - optionally "edge_type_groups": [(src_tag, edge_name, dst_tag), ...]
 
         Args:
-            gclient: NebulaGraph graph client.
-            sclient: NebulaGraph storage client.
-            space (str): The name of the Nebula space.
-            snapshot (dict): Contains edge types and vid-index mappings.
+            pool_factory: Factory returning a ConnectionPool (graphd).
+            sclient_factory: Factory returning a GraphStorageClient (storaged).
+            space: NebulaGraph space name.
+            snapshot: Pre-scanned metadata used for VID/index translation.
+            username: Nebula username.
+            password: Nebula password.
+            default_batch_size: Fallback batch size for edge scans.
         """
         GraphStore.__init__(self)
         NebulaStoreBase.__init__(self, pool_factory, sclient_factory, space, username, password)
@@ -51,16 +68,21 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
 
     def get_edge_index(self, edge_attr: EdgeAttr, **kwargs) -> torch.Tensor:
         """
-        Returns the edge index tensor for a given edge type in COO format.
+        Return the edge index for a specific edge type in COO layout.
 
-        Args:
-            edge_attr (EdgeAttr): Must contain a 3-tuple edge_type: (src_tag, rel, dst_tag).
+        Requirements:
+          - `edge_attr.layout` must be `EdgeLayout.COO`.
+          - `edge_attr.edge_type` must be a 3-tuple: (src_tag, edge_name, dst_tag).
+
+        Keyword Args:
+            batch_size (int): Optional override for scan batch size.
 
         Returns:
-            torch.Tensor: Tensor of shape [2, num_edges] in COO format.
+            torch.LongTensor: Shape [2, num_edges] (COO). Empty if mappings are missing.
 
         Raises:
-            ValueError: If edge_type is missing or improperly formatted.
+            NotImplementedError: If a non-COO layout is requested.
+            ValueError: If `edge_type` is not a (src, rel, dst) triple.
         """
         # print(f"get_edge_index called with edge_attr: {edge_attr}")
         if edge_attr.layout != EdgeLayout.COO:
@@ -76,16 +98,21 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
 
     def _get_edge_index(self, edge_name, src_tag, dst_tag, batch_size=4096):
         """
-        Scans NebulaGraph for all edges of a given edge type, and builds an edge index tensor.
+        Scan storaged for all edges of `edge_name` and build a COO edge index.
+
+        Notes:
+          - Uses per-tag `vid_to_idx` to translate VIDs into contiguous indices.
+          - Silently skips edges whose endpoints are not present in the mappings.
+          - Returns an empty [2, 0] tensor if no valid edges are found.
 
         Args:
-            edge_name (str): The name of the edge type in Nebula.
+            edge_name (str): Edge type name in Nebula.
             src_tag (str): Source vertex tag.
             dst_tag (str): Destination vertex tag.
-            batch_size (int): Number of edges fetched per storage scan.
+            batch_size (int): Number of edges per storage scan.
 
         Returns:
-            torch.Tensor: Edge index in COO format with shape [2, num_edges].
+            torch.LongTensor: Edge index [2, num_edges] in COO format.
         """
         src_vid_to_idx = self.vid_to_idx.get(src_tag, {})
         dst_vid_to_idx = self.vid_to_idx.get(dst_tag, {})
@@ -123,9 +150,12 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
 
     def get_all_edge_attrs(self) -> list[EdgeAttr]:
         """
-        Returns all known edge types in the space as PyG-compatible EdgeAttr objects.
+        Enumerate all known edge types as PyG EdgeAttr in COO layout.
+
+        Source of truth is `self.edge_type_groups`, typically populated by the
+        snapshot builder. If empty, returns an empty list.
 
         Returns:
-            List[EdgeAttr]: List of edge attributes in COO layout.
+            list[EdgeAttr]: One EdgeAttr per (src_tag, edge_name, dst_tag), COO only.
         """
         return [EdgeAttr(edge_type=e, layout=EdgeLayout.COO) for e in self.edge_type_groups]
