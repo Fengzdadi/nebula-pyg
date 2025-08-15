@@ -40,7 +40,6 @@ nebula_pyg = NebulaPyG(gclient, sclient, SPACE, snapshot)
 feature_store, graph_store = nebula_pyg.get_torch_geometric_remote_backend()
 
 from torch_geometric.loader import NeighborLoader
-import multiprocessing
 
 input_nodes = list(range(len(snapshot['idx_to_vid']['player'])))
 
@@ -59,6 +58,7 @@ loader = NeighborLoader(
 for batch in loader:
     # batch['player'].x, batch['player', 'follow', 'player'].edge_index ...
     print("batch:", batch)
-    # 可以直接放进你的 GNN forward 函数
+    # Can be put directly into your GNN forward function
+    # For more details, see the OGBN example.
 
 gclient.release()

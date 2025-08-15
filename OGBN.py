@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import torch
 
 # monkey patch torch.load for OGB compatibility
+# The problem is the conflict between torch 2.6 and OGB
 # This part can be deleted after ogb solves this problem
 # ——————————
 real_torch_load = torch.load

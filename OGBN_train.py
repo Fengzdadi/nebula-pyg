@@ -15,22 +15,21 @@ USER = 'root'
 PASSWORD = 'nebula'
 SNAPSHOT_PATH = 'snapshot_vid_to_idx_arxiv.pkl'
 
-# 修改为你的实际地址
+# Change to your actual address
 NEBULA_HOSTS = [("host.docker.internal", 9669)]
 META_HOSTS = [("metad0", 9559), ("metad1", 9559), ("metad2", 9559)]
 
-config = Config()
-connection_pool = ConnectionPool()
-connection_pool.init(NEBULA_HOSTS, config)
-gclient = connection_pool.get_session(USER, PASSWORD)
-
-meta_cache = MetaCache(META_HOSTS, 50000)
-sclient = GraphStorageClient(meta_cache)
+# config = Config()
+# connection_pool = ConnectionPool()
+# connection_pool.init(NEBULA_HOSTS, config)
+# gclient = connection_pool.get_session(USER, PASSWORD)
+#
+# meta_cache = MetaCache(META_HOSTS, 50000)
+# sclient = GraphStorageClient(meta_cache)
 
 # Factory function (temporary)
 def make_pool():
     cfg = Config()
-    cfg.max_retry_connect = 1
     pool = ConnectionPool()
     ok = pool.init([("graphd", 9669)], cfg)
     assert ok, "Init ConnectionPool failed"
@@ -43,7 +42,7 @@ def make_sclient():
 
 # Create/load snapshot (VID mapping)
 if not os.path.exists(SNAPSHOT_PATH):
-    snapshot = NebulaPyG.create_snapshot(gclient, sclient, SPACE)
+    snapshot = NebulaPyG.create_snapshot(make_pool(), make_sclient(), SPACE, username=USER, password=PASSWORD)
     with open(SNAPSHOT_PATH, "wb") as f:
         pickle.dump(snapshot, f)
 else:
@@ -118,5 +117,3 @@ for epoch in range(1, 6):
 
 print("Training completed!")
 
-
-gclient.release()
