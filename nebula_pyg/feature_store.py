@@ -271,7 +271,9 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
             out = [m.get(v, [0]*D) for v in vids]
             return torch.as_tensor(out)
 
-        # TODO
+        # TODO：In case ngql takes too long, do a batch process
+        # It seems that it is not necessary. Fetching 100,000 points at a time is OK. It is sufficient for the time being under neighborload. If there is an industrial-level demand, you can raise an issue or submit a PR later.
+
         if prop == "y":
             numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)
             y_prop = self._y_prop(tag, numeric_cols)
@@ -282,6 +284,8 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         vid_list_str = ", ".join(f'"{v}"' for v in vids) 
         ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {tag}.{prop}, id(vertex)'
         
+        # print("ngql:",ngql)
+
         result = self._execute(ngql)
 
         m = {}
@@ -452,4 +456,41 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
     def _y_prop(self, tag: str, numeric_cols: list[str]) -> str | None:
         """Return the first existing y-like column for this tag."""
         return next((c for c in Y_CANDIDATES if c in numeric_cols), None)
+
+    # Reserved for long ngql
+    def yield_batched_fetches(tag, cols, vids, max_chars: int):
+        """
+        Bundle a set of vids into multiple FETCH statements, ensuring each vid does not exceed max_chars characters.
+        cols: For example, ["label"] or ["f0","f1",...]
+        vids: For example, ["0","1","2",...] (FIXED_STRING -> requires quotes; you can pre-quote them.)
+        """
+        cols_expr = ", ".join([f"{tag}.{c}" for c in cols] + ["id(vertex)"])
+        head = f"FETCH PROP ON {tag} "
+        tail = f" YIELD {cols_expr};"
+
+        cur = []
+        cur_len = len(head) + len(tail)
+        def lit_len(v): return len(v) + 2
+        for i, v in enumerate(vids):
+            add = lit_len(v)
+            if i == 0 and not cur:
+                add -= 2
+            if cur_len + add > max_chars and cur:
+                yield head + ", ".join(cur) + tail
+                cur = [v]
+                cur_len = len(head) + len(tail) + (len(v))
+            else:
+                cur.append(v)
+                cur_len += add
+        if cur:
+            yield head + ", ".join(cur) + tail
+
+
+        """
+        quoted_vids = [f'"{v}"' for v in vids]   # FIXED_STRING
+        cols = feat_names if prop == "x" else [prop]
+        for ngql in yield_batched_fetches(tag, cols, quoted_vids, max_chars=400_000):
+        result = self._execute(ngql)
+
+        """
 
