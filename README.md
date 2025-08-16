@@ -99,7 +99,8 @@ Although the initial implementation was completed during OSPP, this project will
 ---
 ## TODO
 - [ ] Improve documentation with more usage examples
-  - [ ] OGBL for Link Property Prediction
+  - [x] ~~OGBL~~ Cora for Link Property Prediction
   - [ ] OGBG for Graph Property Prediction
 - [ ] Directly provide factory functions without users having to generate them manually
 - [ ] Provides general snapshots for users to understand the data processing structure
+- [ ] Currently all vids are based on the fixstring type. Is it necessary to add the int type? In my opinion, users only need to use the fixstring when importing.
