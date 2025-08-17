@@ -13,20 +13,35 @@ from nebula3.common.ttypes import HostAddr
 
 from torch_geometric.data import EdgeAttr, EdgeLayout
 
+# NebulaGraph Connection
+SPACE = 'basketballplayer'
+USER = 'root'
+PASSWORD = 'nebula'
+SNAPSHOT_PATH = 'snapshot_vid_to_idx.pkl'
+
+# Change to your actual address
+NEBULA_HOSTS = [("host.docker.internal", 9669)]
+META_HOSTS = [("metad0", 9559), ("metad1", 9559), ("metad2", 9559)]
+
+def make_pool():
+    cfg = Config()
+    pool = ConnectionPool()
+    ok = pool.init([("graphd", 9669)], cfg)
+    assert ok, "Init ConnectionPool failed"
+    return pool
+
+def make_sclient():
+    meta_cache = MetaCache(META_HOSTS, 50000)
+    sclient = GraphStorageClient(meta_cache=meta_cache)
+    return sclient
+
 @pytest.fixture(scope="module")
 def graph_store():
     # TODO: Put the parameters in environment variables, pytest.ini or conftest.py to facilitate unified switching
-    config = Config()
-    connection_pool = ConnectionPool()
-    connection_pool.init([("host.docker.internal", 9669)], config)
-    gclient = connection_pool.get_session("root", "nebula")
-    meta_cache = MetaCache([("metad0", 9559), ("metad1", 9559), ("metad2", 9559)], 50000)
-    sclient = GraphStorageClient(meta_cache)
     with open("snapshot_vid_to_idx.pkl", "rb") as f:
         snapshot = pickle.load(f)
-    gs = NebulaGraphStore(gclient, sclient, "basketballplayer", snapshot)
+    gs = NebulaGraphStore(make_pool(), make_sclient(), "basketballplayer", SPACE, snapshot=snapshot, username=USER, password=PASSWORD)
     yield gs
-    gclient.release()
 
 def test_get_edge_index(graph_store):
     # "follow" Edge
