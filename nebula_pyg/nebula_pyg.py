@@ -32,9 +32,10 @@ class NebulaPyG:
         space (str): Target NebulaGraph space name.
         username (str): Username for authentication.
         password (str): Password for authentication.
+        expose (str): Exposure mode, either "x" or "feats".
         snapshot (dict): Graph metadata including vid mappings and edge type groups.
     """
-    def __init__(self, pool_factory, sclient_factory, space: str, username: str = "root", password: str = "nebula", snapshot: dict | None = None):
+    def __init__(self, pool_factory, sclient_factory, space: str, username: str = "root", password: str = "nebula", expose: str = "x", snapshot: dict | None = None):
         """
         Initialize the NebulaPyG integration.
 
@@ -47,6 +48,9 @@ class NebulaPyG:
             space (str): Target NebulaGraph space.
             username (str): Login username (default: "root").
             password (str): Login password (default: "nebula").
+            expose (str): Exposure mode, either "x" or "feats".
+                - "x": return a single synthetic feature per tag named "x" (concatenation).
+                - "feats": return individual numeric properties as features.
             snapshot (dict, optional): Precomputed metadata; skips scanning if provided.
         """
         self.pool_factory = pool_factory
@@ -54,6 +58,7 @@ class NebulaPyG:
         self.space = space
         self.username = username
         self.password = password
+        self.expose = expose
 
         if snapshot is None:
             self.snapshot = self.create_snapshot(
@@ -125,6 +130,6 @@ class NebulaPyG:
                 - NebulaGraphStore
         """
         return (
-            NebulaFeatureStore(self.pool_factory, self.sclient_factory, self.space, self.snapshot, self.username, self.password),
+            NebulaFeatureStore(self.pool_factory, self.sclient_factory, self.space, self.snapshot, self.username, self.password, self.expose),
             NebulaGraphStore(self.pool_factory, self.sclient_factory, self.space, self.snapshot, self.username, self.password)
         )
