@@ -36,6 +36,10 @@ META_HOSTS = [("metad0", 9559), ("metad1", 9559), ("metad2", 9559)]
 
 SNAPSHOT_PATH = "snapshot_vid_to_idx_cora.pkl"
 
+# The default mode is x, which means that users do not need to splice feat themselves,
+# and the data read from nebula directly meets the requirements of data.x
+EXPOSE = "x"
+
 
 # ================== Factory Function ==================
 def make_pool() -> ConnectionPool:
@@ -168,7 +172,7 @@ def main():
     torch.manual_seed(42)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD)
+    nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, EXPOSE)
 
     if not os.path.exists(SNAPSHOT_PATH):
         snapshot = nebula_pyg.create_snapshot(make_pool, make_sclient, SPACE)
