@@ -1,12 +1,14 @@
 from nebula_pyg.graph_store import NebulaGraphStore
 from nebula_pyg.feature_store import NebulaFeatureStore
 
-from nebula_pyg.utils import scan_all_tag_vids, get_edge_type_groups
+from nebula_pyg.utils.utils import scan_all_tag_vids, get_edge_type_groups
+
 
 from nebula3.gclient.net import ConnectionPool
 from nebula3.sclient.GraphStorageClient import GraphStorageClient
 
-from typing import Dict, List, Tuple, Callable, Optional, Iterable
+from typing import Callable
+
 
 class NebulaPyG:
     """

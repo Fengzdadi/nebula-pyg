@@ -7,7 +7,7 @@ from nebula3.gclient.net import ConnectionPool
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from nebula_pyg.utils import get_edge_type_groups, build_edge_index_dict
+from nebula_pyg.utils.utils import get_edge_type_groups, build_edge_index_dict
 
 def test_edge_type_group_and_index_dict(gclient, sclient, space, snapshot):
     groups = get_edge_type_groups(space, gclient, sclient, snapshot)

@@ -6,7 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pickle
 import json
 
-from nebula_pyg.utils import scan_all_tag_vids, get_edge_type_groups
+from nebula_pyg.utils.utils import scan_all_tag_vids, get_edge_type_groups
 from nebula3.Config import Config
 from nebula3.gclient.net import ConnectionPool
 from nebula3.sclient.GraphStorageClient import GraphStorageClient
