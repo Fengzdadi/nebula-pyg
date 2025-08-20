@@ -4,6 +4,7 @@ import os
 import threading
 from abc import ABC
 from typing import Callable, Optional
+from nebula_pyg.utils.vid_codec import VidCodec
 
 class NebulaStoreBase(ABC):
     """
@@ -51,6 +52,7 @@ class NebulaStoreBase(ABC):
         self._x_cols: dict[str, list[str]] = {}
         self._reserved_cols = {"x", "y", "label", "category", "target"}
         self._missing_value = missing_value
+        self._vid_codec = None
 
     # ---------- Lifecycle management ----------
     def _ensure_pool(self):
@@ -71,6 +73,7 @@ class NebulaStoreBase(ABC):
             self._sclient = self._sclient_factory() if self._sclient_factory else None
             self._sess_local = threading.local()  # Reset thread isolation
             self._pid = cur_pid
+            self._vid_codec = None
         return self._pool
 
     def _ensure_session(self):
@@ -108,6 +111,17 @@ class NebulaStoreBase(ABC):
         if sess is not None and self._pid == os.getpid() and self._pool is not None:
             return sess
         return self._ensure_session()
+    
+    def _ensure_vid_codec(self) -> VidCodec:
+        """Detect VID type once per (process, store), cache result."""
+        if self._vid_codec is None:
+            sess = self._ensure_session_fast()
+            self._vid_codec = VidCodec.detect(sess, self.space)
+        return self._vid_codec
+
+    def _vid_literal(self, v) -> str:
+        """Format VID literal for NGQL based on space VID type."""
+        return self._ensure_vid_codec().literal(v)
 
     # ---------- Execution  ----------
     def _execute(self, ngql: str, check: bool = True):
@@ -188,6 +202,7 @@ class NebulaStoreBase(ABC):
         d["_pool"] = None
         d["_sclient"] = None
         d["_sess_local"] = None
+        d["_vid_codec"] = None
         return d
 
     def __setstate__(self, d):
@@ -197,6 +212,7 @@ class NebulaStoreBase(ABC):
         self.__dict__.update(d)
         self._sess_local = threading.local()
         self._pid = os.getpid()
+        self._vid_codec = None
 
     # ---------- Utility methods ----------
     # TODO: The methods in FeatureStore and GraphStore have not been replaced yet.

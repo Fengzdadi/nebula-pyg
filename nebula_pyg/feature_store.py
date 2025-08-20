@@ -49,7 +49,8 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         FeatureStore.__init__(self)
         NebulaStoreBase.__init__(self, pool_factory, sclient_factory, space, username, password)
 
-        assert expose in ("x", "feats")
+        if expose not in ("x", "feats"):      # ★ 比 assert 更好：明确报错
+            raise ValueError(f"Invalid expose={expose!r}, must be 'x' or 'feats'")
         self.expose = expose
         self.idx_to_vid = snapshot["idx_to_vid"]  # dict[tag] -> {idx: vid}
         self.vid_to_idx = snapshot["vid_to_idx"] 
@@ -129,7 +130,7 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         - Partial request (subset of indices): `_get_tensor_by_query`.
         """
         tag = attr.group_name
-        prop = attr.attr_name
+        # prop = attr.attr_name
         index = attr.index
         vid_to_idx = self.vid_to_idx[tag]
         N = len(vid_to_idx)
@@ -245,8 +246,8 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
             feat_names = self._x_cols.get(tag, [])
             if not feat_names:
                 raise ValueError(f"No numeric columns available to build x for tag {tag}")
-            cols_expr = ", ".join([f"{tag}.{c}" for c in feat_names])
-            vid_list_str = ", ".join(f'"{v}"' for v in vids)
+            cols_expr = ", ".join(f"{tag}.{c}" for c in feat_names)
+            vid_list_str = ", ".join(self._vid_literal(v) for v in vids)
             ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {cols_expr}, id(vertex)'
             
             result = self._execute(ngql)
@@ -281,7 +282,7 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
                 raise ValueError(f"No usable label column for tag {tag} among {Y_CANDIDATES}")
             return self._get_tensor_by_query(TensorAttr(tag, y_prop, index=index))
 
-        vid_list_str = ", ".join(f'"{v}"' for v in vids) 
+        vid_list_str = ", ".join(self._vid_literal(v) for v in vids)
         ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {tag}.{prop}, id(vertex)'
         
         # print("ngql:",ngql)
@@ -489,8 +490,9 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         """
         quoted_vids = [f'"{v}"' for v in vids]   # FIXED_STRING
         cols = feat_names if prop == "x" else [prop]
-        for ngql in yield_batched_fetches(tag, cols, quoted_vids, max_chars=400_000):
-        result = self._execute(ngql)
-
+        lits = [self._vid_literal(v) for v in vids]
+        for ngql in yield_batched_fetches(tag, cols, lits, max_chars=400_000):
+            result = self._execute(ngql)
         """
+
 
