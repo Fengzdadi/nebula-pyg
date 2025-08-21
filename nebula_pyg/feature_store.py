@@ -273,7 +273,9 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
             return torch.as_tensor(out)
 
         # TODO：In case ngql takes too long, do a batch process
-        # It seems that it is not necessary. Fetching 100,000 points at a time is OK. It is sufficient for the time being under neighborload. If there is an industrial-level demand, you can raise an issue or submit a PR later.
+        # It seems that it is not necessary. Fetching 100,000 points at a time is OK.
+        # It is sufficient for the time being under neighborload.
+        # If there is an industrial-level demand, you can raise an issue or submit a PR later.
 
         if prop == "y":
             numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)

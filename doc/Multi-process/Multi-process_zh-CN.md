@@ -2,12 +2,13 @@
 
 专门实现[base_store.py](../nebula_pyg/base_store.py)的原因，是在为`FeatureStroage`的`get_tensor()`做`query`的时候发现的，当时遇到了一个情况，我需要使用query从nebula-graph中获取指定index列表的属性。（TODO：可以写一个关于这个的内容）
 
-先插入一句，简单介绍一下，PyG的DataLoader允许进行`num_workers`的设置，这个应该是从[PyTorch](https://docs.pytorch.org/docs/stable/data.html#single-and-multi-process-data-loading)中继承而来的。
+先插入一句，简单介绍一下，PyG的`DataLoader`允许进行`num_workers`的设置，这个应该是从[PyTorch](https://docs.pytorch.org/docs/stable/data.html#single-and-multi-process-data-loading)中继承而来的。
 
 在`get_tensor()`的具体实现中，最初的实现形式是由用户初始化一个`gclient`(连接graphD的session)，和`sclient`(连接storageD的session)，后续的所有操作都通过这一个`gclient`和`sclient`进行。但当引入query了以后，session的操作就变得极为频繁（其实本来就应该很频繁）。
 
 很可惜，没有找到官方的说明，通过别人的blog，大致可以把torch的multi-process dataloader理解为，由主进程维护一个`index queue`，worker从中取出，调用`get_tensor()`，之后将返回的数据放到 worker_result_queue 这个队列供主进程访问，主进程统一处理。
-最开始的实现很简单：用户初始化一个 gclient（连 graphd）和 sclient（连 storaged），然后所有操作都走这两个对象。
+
+最开始的实现很简单：用户初始化一个 gclient（连 graphd）和 sclient（连 storaged），后续所有的操作都是通过这两个对象。
 
 这个时候问题就出来了，如果是多进程进行，那么get_tensor()中的 session 在最初的设计中都是从上层统一传递的(唯一对象)，并且[nebulagraph的session并不安全](https://www.nebula-graph.com.cn/posts/informal-analysis-of-session-in-nebulagraph)，即不能同时被多个线程/进程使用。
 
@@ -41,7 +42,8 @@ if __name__ == "__main__":
 ---
 
 ## 性能效果
-基于以上，设计了现在的[base_store.py](../nebula_pyg/base_store.py)
+基于以上，设计了现在的[base_store.py](../nebula_pyg/base_store.py)。
+
 以下提供加入不同数量`number_worker`的在训练[OGBN-arxiv](https://ogb.stanford.edu/docs/nodeprop/#ogbn-arxiv)的速度对比（环境：WSL Ubuntu22.04，CPU: AMD R7 5800H(8c16t)，DDR4 40G，NebulaGraph 3.8.0 Docker-Compos, Torch2.7.1+cpu）：
 
 
