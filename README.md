@@ -34,6 +34,7 @@ SPACE = 'basketballplayer'
 USER = 'root'
 PASSWORD = 'nebula'
 SNAPSHOT_PATH = 'snapshot.pkl'
+EXPOSE= 'x'
 
 NEBULA_HOSTS = [("host.docker.internal", 9669)]
 # or
@@ -63,7 +64,7 @@ else:
         snapshot = pickle.load(f)
 
 # Initialize nebula-pyg and get PyG data
-nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, snapshot)
+nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, EXPOSE, snapshot)
 feature_store, graph_store = nebula_pyg.get_torch_geometric_remote_backend()
 
 # Batch Sampling with NeighborLoader

@@ -14,6 +14,7 @@ SPACE = 'arxiv'
 USER = 'root'
 PASSWORD = 'nebula'
 SNAPSHOT_PATH = 'snapshot_vid_to_idx_arxiv.pkl'
+EXPOSE = 'x'
 
 # Change to your actual address
 NEBULA_HOSTS = [("host.docker.internal", 9669)]
@@ -50,7 +51,7 @@ else:
         snapshot = pickle.load(f)
 
 # Initialize NebulaPyG backend
-nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, snapshot)
+nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, EXPOSE, snapshot) # Pay attention to the order of passing parameters
 feature_store, graph_store = nebula_pyg.get_torch_geometric_remote_backend()
 
 from torch_geometric.loader import NeighborLoader

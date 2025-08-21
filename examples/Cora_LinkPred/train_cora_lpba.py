@@ -172,15 +172,15 @@ def main():
     torch.manual_seed(42)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, EXPOSE)
-
     if not os.path.exists(SNAPSHOT_PATH):
-        snapshot = nebula_pyg.create_snapshot(make_pool, make_sclient, SPACE)
+        snapshot = NebulaPyG.create_snapshot(make_pool, make_sclient, SPACE)
         with open(SNAPSHOT_PATH, "wb") as f:
             pickle.dump(snapshot, f)
     else:
         with open(SNAPSHOT_PATH, "rb") as f:
             snapshot = pickle.load(f)
+
+    nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, EXPOSE, snapshot)
 
     feature_store, graph_store = nebula_pyg.get_torch_geometric_remote_backend()
 

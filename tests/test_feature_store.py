@@ -41,7 +41,7 @@ def make_sclient():
 def feature_store():
     with open("snapshot_vid_to_idx.pkl", "rb") as f:
         snapshot = pickle.load(f)
-    fs = NebulaFeatureStore(make_pool(), make_sclient(), "basketballplayer", SPACE, snapshot=snapshot, username=USER, password=PASSWORD)
+    fs = NebulaFeatureStore(make_pool(), make_sclient(), "basketballplayer", SPACE, snapshot=snapshot, username=USER, password=PASSWORD, expose="x")
     yield fs
 
 def test_get_tensor(feature_store):
