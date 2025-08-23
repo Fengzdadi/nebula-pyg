@@ -85,7 +85,7 @@ for batch in loader:
 ## Usage
 For more usage examples and detailed instructions, see [examples/get_started.ipynb](examples/get_started.ipynb).
 
-For specific data import and data training examples, see [OBGN.py](OGBN.py) and [OBGN_train.py](OGBN_train.py).
+For specific data import and data training examples, see [OBGN.py](examples/OGBN_arxiv/OGBN.py) and [OBGN_train.py](examples/OGBN_arxiv/OGBN_train.py).
 
 ## Acknowledgements
 

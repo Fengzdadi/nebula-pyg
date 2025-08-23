@@ -37,7 +37,17 @@ class NebulaPyG:
         expose (str): Exposure mode, either "x" or "feats".
         snapshot (dict): Graph metadata including vid mappings and edge type groups.
     """
-    def __init__(self, pool_factory, sclient_factory, space: str, username: str = "root", password: str = "nebula", expose: str = "x", snapshot: dict | None = None):
+
+    def __init__(
+        self,
+        pool_factory,
+        sclient_factory,
+        space: str,
+        username: str = "root",
+        password: str = "nebula",
+        expose: str = "x",
+        snapshot: dict | None = None,
+    ):
         """
         Initialize the NebulaPyG integration.
 
@@ -64,8 +74,12 @@ class NebulaPyG:
 
         if snapshot is None:
             self.snapshot = self.create_snapshot(
-                self.pool_factory, self.sclient_factory, self.space,
-                self.username, self.password,  batch_size = 4096
+                self.pool_factory,
+                self.sclient_factory,
+                self.space,
+                self.username,
+                self.password,
+                batch_size=4096,
             )
         else:
             self.snapshot = snapshot
@@ -73,13 +87,13 @@ class NebulaPyG:
     # TODO: Consider the design logic of snapshot again
     @classmethod
     def create_snapshot(
-            cls,
-            pool_factory: Callable[[], "ConnectionPool"],
-            sclient_factory: Callable[[], "GraphStorageClient"],
-            space: str,
-            username: str = "root",
-            password: str = "nebula",
-            batch_size: int = 4096,
+        cls,
+        pool_factory: Callable[[], "ConnectionPool"],
+        sclient_factory: Callable[[], "GraphStorageClient"],
+        space: str,
+        username: str = "root",
+        password: str = "nebula",
+        batch_size: int = 4096,
     ) -> dict:
         """
         Scan the target space and return a snapshot of its structure.
@@ -132,6 +146,21 @@ class NebulaPyG:
                 - NebulaGraphStore
         """
         return (
-            NebulaFeatureStore(self.pool_factory, self.sclient_factory, self.space, self.snapshot, self.username, self.password, self.expose),
-            NebulaGraphStore(self.pool_factory, self.sclient_factory, self.space, self.snapshot, self.username, self.password)
+            NebulaFeatureStore(
+                self.pool_factory,
+                self.sclient_factory,
+                self.space,
+                self.snapshot,
+                self.username,
+                self.password,
+                self.expose,
+            ),
+            NebulaGraphStore(
+                self.pool_factory,
+                self.sclient_factory,
+                self.space,
+                self.snapshot,
+                self.username,
+                self.password,
+            ),
         )

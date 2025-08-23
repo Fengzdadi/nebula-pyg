@@ -1,4 +1,3 @@
-from __future__ import annotations
 from torch_geometric.data import GraphStore, EdgeAttr, EdgeLayout
 import torch
 from typing import Iterable, Tuple, Dict
@@ -31,14 +30,14 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
     """
 
     def __init__(
-            self,
-            pool_factory,
-            sclient_factory,
-            space: str,
-            snapshot: Dict,
-            username: str = "root",
-            password: str = "nebula",
-            default_batch_size: int = 4096,
+        self,
+        pool_factory,
+        sclient_factory,
+        space: str,
+        snapshot: Dict,
+        username: str = "root",
+        password: str = "nebula",
+        default_batch_size: int = 4096,
     ):
         """
         Initialize the GraphStore with connection factories and a metadata snapshot.
@@ -58,12 +57,16 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
             default_batch_size: Fallback batch size for edge scans.
         """
         GraphStore.__init__(self)
-        NebulaStoreBase.__init__(self, pool_factory, sclient_factory, space, username, password)
+        NebulaStoreBase.__init__(
+            self, pool_factory, sclient_factory, space, username, password
+        )
 
         self.idx_to_vid: Dict[str, Dict[int, str]] = snapshot["idx_to_vid"]
         self.vid_to_idx: Dict[str, Dict[str, int]] = snapshot["vid_to_idx"]
 
-        self.edge_type_groups: Iterable[Tuple[str, str, str]] = snapshot.get("edge_type_groups", [])
+        self.edge_type_groups: Iterable[Tuple[str, str, str]] = snapshot.get(
+            "edge_type_groups", []
+        )
         self.default_batch_size = int(default_batch_size)
 
     def get_edge_index(self, edge_attr: EdgeAttr, **kwargs) -> torch.Tensor:
@@ -90,7 +93,9 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
 
         etype = edge_attr.edge_type
         if not (isinstance(etype, (tuple, list)) and len(etype) == 3):
-            raise ValueError(f"edge_attr.edge_type must be (src_tag, edge_name, dst_tag), got: {etype}")
+            raise ValueError(
+                f"edge_attr.edge_type must be (src_tag, edge_name, dst_tag), got: {etype}"
+            )
         src_tag, edge_name, dst_tag = etype[0], etype[1], etype[2]
 
         batch_size = int(kwargs.get("batch_size", self.default_batch_size))
@@ -122,10 +127,10 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
         sclient = self.sclient
         src_list, dst_list = [], []
         for _part_id, batch in sclient.scan_edge_async(
-                self.space,
-                edge_name,
-                prop_names=[],
-                batch_size=batch_size,
+            self.space,
+            edge_name,
+            prop_names=[],
+            batch_size=batch_size,
         ):
             for rel in batch.as_relationships():
                 svid = rel.start_vertex_id().cast()
@@ -158,4 +163,6 @@ class NebulaGraphStore(NebulaStoreBase, GraphStore):
         Returns:
             list[EdgeAttr]: One EdgeAttr per (src_tag, edge_name, dst_tag), COO only.
         """
-        return [EdgeAttr(edge_type=e, layout=EdgeLayout.COO) for e in self.edge_type_groups]
+        return [
+            EdgeAttr(edge_type=e, layout=EdgeLayout.COO) for e in self.edge_type_groups
+        ]

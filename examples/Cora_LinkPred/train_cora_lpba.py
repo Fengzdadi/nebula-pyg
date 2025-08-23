@@ -49,6 +49,7 @@ def make_pool() -> ConnectionPool:
     assert pool.init(GRAPH_HOSTS, cfg), "Init ConnectionPool failed"
     return pool
 
+
 def make_sclient() -> GraphStorageClient:
     meta_cache = MetaCache(META_HOSTS, 50000)
     return GraphStorageClient(meta_cache=meta_cache)
@@ -67,9 +68,9 @@ class DotProductLP(nn.Module):
 
 
 # ================== Tool ==================
-def split_undirected_pairs(full_pos: torch.Tensor,
-                           train_ratio=0.85, val_ratio=0.05
-                           ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def split_undirected_pairs(
+    full_pos: torch.Tensor, train_ratio=0.85, val_ratio=0.05
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Remove duplicate bidirectional edges into undirected pairs, split the data proportionally, and then generate bidirectional edges for each set.
     This prevents information leakage caused by (u,v) and (v,u) falling into different sets.
@@ -90,8 +91,8 @@ def split_undirected_pairs(full_pos: torch.Tensor,
     tr = int(M * train_ratio)
     vr = int(M * val_ratio)
     tr_idx = perm[:tr]
-    va_idx = perm[tr:tr + vr]
-    te_idx = perm[tr + vr:]
+    va_idx = perm[tr : tr + vr]
+    te_idx = perm[tr + vr :]
 
     def both_dir(sub_pairs: torch.Tensor) -> torch.Tensor:
         # sub_pairs: [m, 2]  ->  [2, 2m]
@@ -103,29 +104,30 @@ def split_undirected_pairs(full_pos: torch.Tensor,
         return bi
 
     train_pos = both_dir(pairs[tr_idx])
-    val_pos   = both_dir(pairs[va_idx])
-    test_pos  = both_dir(pairs[te_idx])
+    val_pos = both_dir(pairs[va_idx])
+    test_pos = both_dir(pairs[te_idx])
     return train_pos, val_pos, test_pos
 
 
-def make_loader(data_backend,
-                pos_edges: torch.Tensor,
-                batch_size=2048,
-                num_neighbors: List[int] = [10, 10],
-                etype=ETYPE,
-                num_nodes_dict=None):
+def make_loader(
+    data_backend,
+    pos_edges: torch.Tensor,
+    batch_size=2048,
+    num_neighbors: List[int] = [10, 10],
+    etype=ETYPE,
+    num_nodes_dict=None,
+):
     neg_cfg = NegativeSampling(mode="binary", amount=1)
     E = pos_edges.size(1)
 
     loader = LinkNeighborLoader(
-        data=data_backend,                   # (feature_store, graph_store)
+        data=data_backend,  # (feature_store, graph_store)
         num_neighbors=num_neighbors,
         batch_size=batch_size,
         edge_label_index=(etype, pos_edges),
         edge_label=torch.ones(E),
         neg_sampling=neg_cfg,
         shuffle=True,
-
         # Single process first, so we can inject num_nodes after construction
         num_workers=0,
         persistent_workers=False,
@@ -134,7 +136,7 @@ def make_loader(data_backend,
     )
 
     # Originally intended to solve the problem of training DDI, it now seems unnecessary
-    
+
     # if num_nodes_dict is not None:
     #     loader.num_nodes = num_nodes_dict
     #     if hasattr(loader, "link_sampler"):
@@ -170,7 +172,7 @@ def eval_auc(model, device, loader, ntype="Paper", etype=ETYPE):
 
 def main():
     torch.manual_seed(42)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     if not os.path.exists(SNAPSHOT_PATH):
         snapshot = NebulaPyG.create_snapshot(make_pool, make_sclient, SPACE)
@@ -180,14 +182,18 @@ def main():
         with open(SNAPSHOT_PATH, "rb") as f:
             snapshot = pickle.load(f)
 
-    nebula_pyg = NebulaPyG(make_pool, make_sclient, SPACE, USER, PASSWORD, EXPOSE, snapshot)
+    nebula_pyg = NebulaPyG(
+        make_pool, make_sclient, SPACE, USER, PASSWORD, EXPOSE, snapshot
+    )
 
     feature_store, graph_store = nebula_pyg.get_torch_geometric_remote_backend()
 
     # Read the entire graph's positive edges from Nebula (this example uses Cites full edges)
     full_pos = graph_store.get_edge_index(
         EdgeAttr(edge_type=ETYPE, layout=EdgeLayout.COO)
-    ).to(torch.long)  # [2, E]
+    ).to(
+        torch.long
+    )  # [2, E]
 
     # Split train/val/test (undirected deduplication and then restore bidirection, avoid leakage)
     train_pos, val_pos, test_pos = split_undirected_pairs(full_pos)

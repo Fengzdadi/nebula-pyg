@@ -1,10 +1,10 @@
 # nebula_pyg/core/base_store.py
-from __future__ import annotations
 import os
 import threading
 from abc import ABC
 from typing import Callable, Optional
 from nebula_pyg.utils.vid_codec import VidCodec
+
 
 class NebulaStoreBase(ABC):
     """
@@ -26,6 +26,7 @@ class NebulaStoreBase(ABC):
         password: NebulaGraph password (default: "nebula").
         missing_value: Default value to replace None for scalar normalization.
     """
+
     def __init__(
         self,
         pool_factory: Callable[[], "ConnectionPool"],
@@ -33,7 +34,7 @@ class NebulaStoreBase(ABC):
         space: str,
         username: str = "root",
         password: str = "nebula",
-        missing_value = 0,
+        missing_value=0,
     ):
         self._pool_factory = pool_factory
         self._sclient_factory = sclient_factory
@@ -67,7 +68,7 @@ class NebulaStoreBase(ABC):
         """
         cur_pid = os.getpid()
         if (self._pool is None) or (self._pid != cur_pid):
-           # Invalidate old process resources
+            # Invalidate old process resources
             self._release_session_only()
             self._pool = self._pool_factory()
             self._sclient = self._sclient_factory() if self._sclient_factory else None
@@ -111,7 +112,7 @@ class NebulaStoreBase(ABC):
         if sess is not None and self._pid == os.getpid() and self._pool is not None:
             return sess
         return self._ensure_session()
-    
+
     def _ensure_vid_codec(self) -> VidCodec:
         """Detect VID type once per (process, store), cache result."""
         if self._vid_codec is None:
@@ -143,12 +144,12 @@ class NebulaStoreBase(ABC):
         """
         sess = self._ensure_session_fast()
         try:
-            result = sess.execute(f'USE {self.space}; {ngql}')
+            result = sess.execute(f"USE {self.space}; {ngql}")
         except Exception:
             # Session failed, rebuild and retry
             self._rebuild_session()
             sess = self._ensure_session_fast()
-            result = sess.execute(f'USE {self.space}; {ngql}')
+            result = sess.execute(f"USE {self.space}; {ngql}")
 
         if check and not result.is_succeeded():
             raise RuntimeError(
@@ -244,9 +245,11 @@ class NebulaStoreBase(ABC):
         Default implementation depends on `self._sclient._meta_cache`.
         Subclasses should override this method to customize numeric column collection.
         """
-        raise NotImplementedError("Subclasses should implement _collect_numeric_cols(tag).")
+        raise NotImplementedError(
+            "Subclasses should implement _collect_numeric_cols(tag)."
+        )
 
-    # Properties 
+    # Properties
     @property
     def pool(self):
         self._ensure_pool()

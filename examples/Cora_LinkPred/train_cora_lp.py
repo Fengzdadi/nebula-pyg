@@ -9,6 +9,7 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.loader import LinkNeighborLoader
 from torch_geometric.sampler import NegativeSampling
 
+
 # ============== dot-product LP model ==============
 class DotProductLP(nn.Module):
     def __init__(self, num_nodes: int, emb_dim: int = 128):
@@ -27,26 +28,26 @@ def make_edge_splits(edge_index: torch.Tensor, train_ratio=0.85, val_ratio=0.05)
     train_e = int(E * train_ratio)
     val_e = int(E * val_ratio)
     train_pos = edge_index[:, perm[:train_e]]
-    val_pos = edge_index[:, perm[train_e:train_e + val_e]]
-    test_pos = edge_index[:, perm[train_e + val_e:]]
+    val_pos = edge_index[:, perm[train_e : train_e + val_e]]
+    test_pos = edge_index[:, perm[train_e + val_e :]]
     return train_pos, val_pos, test_pos
 
 
 def make_loader(data, pos_edges, batch_size=1024, num_neighbors=[10, 10], neg_amount=1):
-    neg_cfg = NegativeSampling(mode='binary', amount=neg_amount)
+    neg_cfg = NegativeSampling(mode="binary", amount=neg_amount)
     E = pos_edges.size(1)
     loader = LinkNeighborLoader(
-        data=data,                       
-        num_neighbors=num_neighbors,     
+        data=data,
+        num_neighbors=num_neighbors,
         batch_size=batch_size,
-        edge_label_index=pos_edges,      
-        edge_label=torch.ones(E),        
-        neg_sampling=neg_cfg,            
+        edge_label_index=pos_edges,
+        edge_label=torch.ones(E),
+        neg_sampling=neg_cfg,
         shuffle=True,
-        num_workers=0,                   
+        num_workers=0,
         persistent_workers=False,
         filter_per_worker=True,
-        directed=True,                   
+        directed=True,
     )
     return loader
 
@@ -68,26 +69,26 @@ def eval_auc(model, device, loader):
     try:
         return roc_auc_score(y, p)
     except Exception:
-        return float('nan')
+        return float("nan")
 
 
 def main():
     torch.manual_seed(42)
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Load Cora (Planetoid)
-    root = os.path.join(os.path.dirname(__file__), '..', '..', 'data')
-    dataset = Planetoid(root=root, name='Cora')
+    root = os.path.join(os.path.dirname(__file__), "..", "..", "data")
+    dataset = Planetoid(root=root, name="Cora")
     data = dataset[0]
-    data = data.to('cpu')
+    data = data.to("cpu")
 
     print(f"Graph: num_nodes={data.num_nodes}, num_edges={data.edge_index.size(1)}")
     train_pos, val_pos, test_pos = make_edge_splits(data.edge_index)
 
     # Construct loaders separately (note that etype is not passed here, Tensor is passed directly)
     train_loader = make_loader(data, train_pos, batch_size=2048)
-    val_loader   = make_loader(data, val_pos,   batch_size=4096)
-    test_loader  = make_loader(data, test_pos,  batch_size=4096)
+    val_loader = make_loader(data, val_pos, batch_size=4096)
+    test_loader = make_loader(data, test_pos, batch_size=4096)
 
     print("train_loader.num_nodes =", getattr(train_loader, "num_nodes", None))
 

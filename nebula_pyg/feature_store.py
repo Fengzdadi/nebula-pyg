@@ -4,11 +4,11 @@ from nebula3.common.ttypes import PropertyType
 from nebula3.data.DataObject import ValueWrapper
 import torch
 import numpy as np
-import time
 
 from nebula_pyg.type_helper import get_feature_dim
 
 Y_CANDIDATES = ("label", "y", "target", "category")
+
 
 class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
     """
@@ -29,9 +29,17 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         without assembling "x".
 
     """
-    def __init__(self, pool_factory, sclient_factory, space, snapshot,
-                 username: str = "root", password: str = "nebula",
-                 expose: str = "x"):
+
+    def __init__(
+        self,
+        pool_factory,
+        sclient_factory,
+        space,
+        snapshot,
+        username: str = "root",
+        password: str = "nebula",
+        expose: str = "x",
+    ):
         """
         Initialize the FeatureStore with factories and metadata snapshot.
 
@@ -47,14 +55,16 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
             - "feats": return individual numeric properties as features.
         """
         FeatureStore.__init__(self)
-        NebulaStoreBase.__init__(self, pool_factory, sclient_factory, space, username, password)
+        NebulaStoreBase.__init__(
+            self, pool_factory, sclient_factory, space, username, password
+        )
 
-        if expose not in ("x", "feats"):      # ★ 比 assert 更好：明确报错
+        if expose not in ("x", "feats"):  # ★ 比 assert 更好：明确报错
             raise ValueError(f"Invalid expose={expose!r}, must be 'x' or 'feats'")
         self.expose = expose
         self.idx_to_vid = snapshot["idx_to_vid"]  # dict[tag] -> {idx: vid}
-        self.vid_to_idx = snapshot["vid_to_idx"] 
-        
+        self.vid_to_idx = snapshot["vid_to_idx"]
+
     def get_tensor(self, attr: TensorAttr, index=None, **kwargs):
         """
         Retrieve a tensor for the specified attribute.
@@ -80,48 +90,6 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         """
         return self._get_tensor(attr, index=index, **kwargs)
 
-    # TODO: COO edge index
-    # def _get_tensor(self, attr: TensorAttr, index=None, **kwargs):
-    #     tag = attr.group_name
-    #     prop = attr.attr_name
-    #     values = []
-
-    #     # TODO: Optimize index sampling from the underlying logic instead of filtering here
-    #     N = len(self.vid_to_idx)
-    #     if index is not None:
-    #         if hasattr(index, "tolist"):
-    #             index = index.tolist()
-    #         else:
-    #             index = list(index)
-    #         for batch_vids in split_batches(index, batch_size=4096):
-    #             for part_id, batch in self.sclient.scan_vertex_async(
-    #                     self.space,
-    #                     tag,
-    #                     [prop],
-    #                     batch_size=len(batch_vids),
-    #             ):
-    #                 for node in batch.as_nodes():
-    #                     vid = node.get_id().cast()
-    #                     if vid in batch_vids:
-    #                         props = node.properties(tag)
-    #                         if prop in props:
-    #                             val = props[prop].cast()
-    #                             values.append(val)
-
-    #     else:
-    #         for part_id, batch in self.sclient.scan_vertex_async(
-    #             self.space,
-    #             tag,
-    #             [prop],
-    #             batch_size=4096,
-    #         ):
-    #             for node in batch.as_nodes():
-    #                 props = node.properties(tag)
-    #                 if prop in props:
-    #                     val = props[prop].cast()
-    #                     values.append(val)
-    #     return torch.tensor(values)
-
     def _get_tensor(self, attr: TensorAttr, **kwargs):
         """
         Internal dispatcher selecting between scan or query path.
@@ -134,15 +102,16 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         index = attr.index
         vid_to_idx = self.vid_to_idx[tag]
         N = len(vid_to_idx)
-        
+
         # Determine whether it is a full request
-        if index is None or (isinstance(index, (list, tuple, np.ndarray)) and len(index) == N):
+        if index is None or (
+            isinstance(index, (list, tuple, np.ndarray)) and len(index) == N
+        ):
             # print("use scan")
             return self._get_tensor_by_scan(attr)
         else:
             # print("use query")
             return self._get_tensor_by_query(attr)
-
 
     def _get_tensor_by_scan(self, attr: TensorAttr, **kwargs):
         """
@@ -158,13 +127,15 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         tag = attr.group_name
         prop = attr.attr_name
 
-        vid_to_idx = self.vid_to_idx[tag]    # {vid: idx}
+        vid_to_idx = self.vid_to_idx[tag]  # {vid: idx}
         N = len(vid_to_idx)
 
         if prop == "x":
             feat_names = self._x_cols.get(tag, [])
             if not feat_names:
-                raise ValueError(f"No numeric columns available to build x for tag {tag}")
+                raise ValueError(
+                    f"No numeric columns available to build x for tag {tag}"
+                )
             D = len(feat_names)
             result = [[0] * D for _ in range(N)]
 
@@ -185,16 +156,24 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
                             result[i][j] = v
 
             if attr.index is not None:
-                idxs = attr.index.tolist() if hasattr(attr.index, "tolist") else list(attr.index)
+                idxs = (
+                    attr.index.tolist()
+                    if hasattr(attr.index, "tolist")
+                    else list(attr.index)
+                )
                 result = [result[i] for i in idxs]
 
-            return torch.as_tensor(result) # as_tensor() is a shallow copy
+            return torch.as_tensor(result)  # as_tensor() is a shallow copy
 
         if prop == "y":
-            numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)
+            numeric_cols = self._numeric_cols_by_tag.get(
+                tag
+            ) or self._collect_numeric_cols(tag)
             y_prop = self._y_prop(tag, numeric_cols)
             if y_prop is None:
-                raise ValueError(f"No usable label column for tag {tag} among {Y_CANDIDATES}")
+                raise ValueError(
+                    f"No usable label column for tag {tag} among {Y_CANDIDATES}"
+                )
             return self._get_tensor_by_scan(TensorAttr(tag, y_prop, index=attr.index))
 
         result = [None] * N
@@ -213,13 +192,16 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
                     result[idx] = val
 
         if attr.index is not None:
-            idxs = attr.index.tolist() if hasattr(attr.index, "tolist") else list(attr.index)
+            idxs = (
+                attr.index.tolist()
+                if hasattr(attr.index, "tolist")
+                else list(attr.index)
+            )
             out = [0 if result[i] is None else result[i] for i in idxs]
         else:
             out = [0 if v is None else v for v in result]
         # print("out:", out)
         return torch.as_tensor(out)
-        
 
     def _get_tensor_by_query(self, attr: TensorAttr):
         """
@@ -245,11 +227,13 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         if prop == "x":
             feat_names = self._x_cols.get(tag, [])
             if not feat_names:
-                raise ValueError(f"No numeric columns available to build x for tag {tag}")
+                raise ValueError(
+                    f"No numeric columns available to build x for tag {tag}"
+                )
             cols_expr = ", ".join(f"{tag}.{c}" for c in feat_names)
             vid_list_str = ", ".join(self._vid_literal(v) for v in vids)
-            ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {cols_expr}, id(vertex)'
-            
+            ngql = f"FETCH PROP ON {tag} {vid_list_str} YIELD {cols_expr}, id(vertex)"
+
             result = self._execute(ngql)
 
             # print("result:", result)
@@ -259,7 +243,9 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
             for row in result.rows():
                 vals = row.values
                 if len(vals) != D + 1:
-                    raise RuntimeError(f"Unexpected row width={len(vals)}, expect {D+1}")
+                    raise RuntimeError(
+                        f"Unexpected row width={len(vals)}, expect {D+1}"
+                    )
                 row_vec = []
                 for k in range(D):
                     v = ValueWrapper(vals[k]).cast()
@@ -269,7 +255,7 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
                 vid = ValueWrapper(vals[D]).cast()
                 m[vid] = row_vec
 
-            out = [m.get(v, [0]*D) for v in vids]
+            out = [m.get(v, [0] * D) for v in vids]
             return torch.as_tensor(out)
 
         # TODO：In case ngql takes too long, do a batch process
@@ -278,15 +264,19 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         # If there is an industrial-level demand, you can raise an issue or submit a PR later.
 
         if prop == "y":
-            numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)
+            numeric_cols = self._numeric_cols_by_tag.get(
+                tag
+            ) or self._collect_numeric_cols(tag)
             y_prop = self._y_prop(tag, numeric_cols)
             if y_prop is None:
-                raise ValueError(f"No usable label column for tag {tag} among {Y_CANDIDATES}")
+                raise ValueError(
+                    f"No usable label column for tag {tag} among {Y_CANDIDATES}"
+                )
             return self._get_tensor_by_query(TensorAttr(tag, y_prop, index=index))
 
         vid_list_str = ", ".join(self._vid_literal(v) for v in vids)
-        ngql = f'FETCH PROP ON {tag} {vid_list_str} YIELD {tag}.{prop}, id(vertex)'
-        
+        ngql = f"FETCH PROP ON {tag} {vid_list_str} YIELD {tag}.{prop}, id(vertex)"
+
         # print("ngql:",ngql)
 
         result = self._execute(ngql)
@@ -305,7 +295,6 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         out = [m.get(v, 0) for v in vids]
         return torch.as_tensor(out)
 
-
         # if len(out) != len(index):
         #     # print("The vids for this query:", vids)
         #     # print("Query results:", result)
@@ -313,7 +302,6 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         #     # print("error_msg:", result.error_msg())
         #     raise RuntimeError(f"Expected {len(index)} items, actually returned {len(out)} items, some items were missed.")
         # return torch.tensor(out)
-
 
     def _put_tensor(self, tensor, attr: TensorAttr):
         raise NotImplementedError
@@ -334,54 +322,18 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         """
         return self._get_tensor_size(attr)
 
-    # def _get_tensor_size(self, attr: TensorAttr):
-    #     tag = attr.group_name
-    #     prop = attr.attr_name
-
-    #     stats_result = self.gcilent.execute(
-    #         f"USE {self.space};"
-    #         "SHOW STATS;"
-    #     )
-    #     print("stats_result:", stats_result)
-    #     num_nodes = None
-    #     # TODO: optimize the logic of getting the number of nodes, maybe only need to get the number of nodes of the tag
-    #     for row in stats_result.rows():
-    #         print("row:", row)
-    #         row_values = row.values
-    #         row_type = ValueWrapper(row_values[0]).cast()  # "Tag"、"Edge"、"Space"
-    #         row_name = ValueWrapper(row_values[1]).cast()  # Sp. tag/edge/space
-    #         count = ValueWrapper(row_values[2]).cast()     # int 
-    #         if row_type == "Tag" and row_name == tag:
-    #             num_nodes = int(count)
-    #             break
-    #     if num_nodes is None:
-    #         raise ValueError(f"Tag {tag} not found in SHOW STATS")
-    #     # TODO: _meta_cache is not a public attribute, need to find a better way to get the schema
-    #     schema = self.sclient._meta_cache.get_tag_schema(self.space, tag)
-    #     # print(schema)
-    #     feature_dim = None
-    #     for col in schema.columns:
-    #         col_name = col.name
-    #         if isinstance(col_name, bytes):
-    #             col_name = col_name.decode()
-    #         if col_name == prop:
-    #             feature_dim = int(get_feature_dim(col))
-    #             break
-    #     if feature_dim is None:
-    #         raise ValueError(f"Property {prop} not found in tag {tag} schema")
-
-    #     print(f"Feature size for {tag}.{prop}: (num_nodes={num_nodes}, feature_dim={feature_dim})")
-
-    #     return (num_nodes, feature_dim)
-
     def _get_tensor_size(self, attr: TensorAttr):
         tag = attr.group_name
         # TODO:
         if attr.attr_name == "y":
-            numeric_cols = self._numeric_cols_by_tag.get(tag) or self._collect_numeric_cols(tag)
+            numeric_cols = self._numeric_cols_by_tag.get(
+                tag
+            ) or self._collect_numeric_cols(tag)
             prop = self._y_prop(tag, numeric_cols)
             if prop is None:
-                raise ValueError(f"No usable label column for tag {tag} among {Y_CANDIDATES}")
+                raise ValueError(
+                    f"No usable label column for tag {tag} among {Y_CANDIDATES}"
+                )
         else:
             prop = attr.attr_name
 
@@ -390,12 +342,17 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         if prop == "x":
             feature_dim = len(self._x_cols.get(tag, []))
             if feature_dim == 0:
-                raise ValueError(f"No numeric columns available to build x for tag {tag}")
+                raise ValueError(
+                    f"No numeric columns available to build x for tag {tag}"
+                )
         else:
+            # TODO: _meta_cache is not a public attribute, need to find a better way to get the schema
             schema = self.sclient._meta_cache.get_tag_schema(self.space, tag)
             feature_dim = None
             for col in schema.columns:
-                col_name = col.name.decode() if isinstance(col.name, bytes) else col.name
+                col_name = (
+                    col.name.decode() if isinstance(col.name, bytes) else col.name
+                )
                 if col_name == prop:
                     feature_dim = int(get_feature_dim(col))
                     break
@@ -429,8 +386,8 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
             if self.expose == "feats":
                 for col in x_cols:
                     attrs.append(TensorAttr(tag, col))
-            else:  
-                if x_cols:  
+            else:
+                if x_cols:
                     attrs.append(TensorAttr(tag, "x"))
 
             y_prop = self._y_prop(tag, numeric_cols)
@@ -439,18 +396,24 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
         return attrs
 
-
     def _collect_numeric_cols(self, tag):
         """Return sorted numeric property names from tag schema."""
         schema = self.sclient._meta_cache.get_tag_schema(self.space, tag)
         cols = []
         # TODO: limit type(reconsider after vector available)
         # Only keep numeric values
-        numeric_types = (PropertyType.INT64, PropertyType.INT8, PropertyType.INT16,
-                        PropertyType.INT32, PropertyType.FLOAT, PropertyType.DOUBLE, PropertyType.BOOL)
+        numeric_types = (
+            PropertyType.INT64,
+            PropertyType.INT8,
+            PropertyType.INT16,
+            PropertyType.INT32,
+            PropertyType.FLOAT,
+            PropertyType.DOUBLE,
+            PropertyType.BOOL,
+        )
         for col in schema.columns:
             name = col.name.decode() if isinstance(col.name, bytes) else col.name
-            ctype = col.type.type if hasattr(col.type, 'type') else col.type
+            ctype = col.type.type if hasattr(col.type, "type") else col.type
             if ctype in numeric_types:
                 cols.append(name)
         cols.sort()
@@ -473,7 +436,10 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
 
         cur = []
         cur_len = len(head) + len(tail)
-        def lit_len(v): return len(v) + 2
+
+        def lit_len(v):
+            return len(v) + 2
+
         for i, v in enumerate(vids):
             add = lit_len(v)
             if i == 0 and not cur:
@@ -488,7 +454,6 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         if cur:
             yield head + ", ".join(cur) + tail
 
-
         """
         quoted_vids = [f'"{v}"' for v in vids]   # FIXED_STRING
         cols = feat_names if prop == "x" else [prop]
@@ -496,5 +461,3 @@ class NebulaFeatureStore(NebulaStoreBase, FeatureStore):
         for ngql in yield_batched_fetches(tag, cols, lits, max_chars=400_000):
             result = self._execute(ngql)
         """
-
-

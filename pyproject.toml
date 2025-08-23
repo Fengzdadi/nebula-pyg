@@ -25,15 +25,21 @@ requires-python = ">=3.6.2,<3.13"
 readme = "README.md"
 license = {text = "MIT"}
 
+
 [tool.pdm]
 distribution = true
-
-[build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
 
 [[tool.pdm.source]]
 name = "private"
 url = "https://download.pytorch.org/whl/cpu"
 include_packages = ["torch", "torchvision", "torchaudio"]
 exclude_packages = ["*"]
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+]

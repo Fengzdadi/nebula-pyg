@@ -6,8 +6,10 @@ from nebula3.gclient.net import ConnectionPool
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from nebula_pyg.utils.utils import get_edge_type_groups, build_edge_index_dict
+
 
 def test_edge_type_group_and_index_dict(gclient, sclient, space, snapshot):
     groups = get_edge_type_groups(space, gclient, sclient, snapshot)
@@ -38,6 +40,7 @@ def test_edge_type_group_and_index_dict(gclient, sclient, space, snapshot):
         break
     print("All edge_index_dict construction and shape checks pass")
 
+
 def main():
     space = "basketballplayer"
     with open("snapshot_vid_to_idx.pkl", "rb") as f:
@@ -48,11 +51,10 @@ def main():
     connection_pool.init([("host.docker.internal", 9669)], config)
     gclient = connection_pool.get_session("root", "nebula")
     meta_cache = MetaCache(
-        [("metad0", 9559),("metad1", 9559),("metad2", 9559)], 50000
+        [("metad0", 9559), ("metad1", 9559), ("metad2", 9559)], 50000
     )
     sclient = GraphStorageClient(meta_cache)
 
     test_edge_type_group_and_index_dict(space, gclient, sclient, snapshot)
 
     gclient.release()
-

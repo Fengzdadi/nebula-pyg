@@ -7,6 +7,7 @@ from torch_geometric.data import TensorAttr
 
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from nebula_pyg.graph_store import NebulaGraphStore
@@ -21,9 +22,9 @@ from nebula3.gclient.net import ConnectionPool
 def fetch_all_features(fs):
     feature_dict = {}
     try:
-        player_feat = fs.get_tensor(TensorAttr('player', 'age'))
+        player_feat = fs.get_tensor(TensorAttr("player", "age"))
         player_feat = player_feat.view(-1, 1) if player_feat.dim() == 1 else player_feat
-        feature_dict['player'] = player_feat
+        feature_dict["player"] = player_feat
         print(f"[Info] 选用 player.age 作为特征, shape={player_feat.shape}")
     except Exception as e:
         print(f"[Warn] player 特征拉取失败: {e}")
@@ -43,13 +44,12 @@ def fetch_all_edge_indices(gs):
     return edge_index_dict
 
 
-
-SPACE = 'basketballplayer'
-USER = 'root'
-PASSWORD = 'nebula'
-SNAPSHOT_PATH = 'snapshot_vid_to_idx.pkl'
+SPACE = "basketballplayer"
+USER = "root"
+PASSWORD = "nebula"
+SNAPSHOT_PATH = "snapshot_vid_to_idx.pkl"
 tag = "player"
-prop = "age"  
+prop = "age"
 
 config = Config()
 connection_pool = ConnectionPool()
@@ -79,19 +79,21 @@ for (src, rel, dst), edge_index in edge_index_dict.items():
     data[(src, rel, dst)].edge_index = edge_index
 
 print("edge_index_dict:", edge_index_dict)
-print('data:', data)
+print("data:", data)
 
 # GNN
 
 # 选用一种边关系和节点类型
-ntype = 'player'
-rel = 'follow'
+ntype = "player"
+rel = "follow"
 print("data.edge_types:", data.edge_types)
 if (ntype, rel, ntype) not in data.edge_types:
-    raise ValueError(f'Edge ({ntype}, {rel}, {ntype}) 不存在！请检查实际边类型。')
+    raise ValueError(f"Edge ({ntype}, {rel}, {ntype}) 不存在！请检查实际边类型。")
 
 x = data[ntype].x.float()
-y = data[ntype].y if 'y' in data[ntype] else torch.randint(0, 2, (x.size(0),)) # 若无label临时生成
+y = (
+    data[ntype].y if "y" in data[ntype] else torch.randint(0, 2, (x.size(0),))
+)  # 若无label临时生成
 edge_index = data[(ntype, rel, ntype)].edge_index.long()
 edge_type = torch.zeros(edge_index.size(1), dtype=torch.long)  # 只有一种关系时
 print("edge_type unique:", edge_type.unique())
@@ -112,12 +114,15 @@ print("labels.size():", y.size())
 # except Exception as e:
 #     print("[ERROR] RGCN 单元测试失败：", e)
 
+
 # 定义模型
 class SimpleRGCN(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, out_channels, num_relations):
         super().__init__()
         self.conv1 = RGCNConv(in_channels, hidden_channels, num_relations=num_relations)
-        self.conv2 = RGCNConv(hidden_channels, out_channels, num_relations=num_relations)
+        self.conv2 = RGCNConv(
+            hidden_channels, out_channels, num_relations=num_relations
+        )
 
     def forward(self, x, edge_index, edge_type):
         x = self.conv1(x, edge_index, edge_type)
@@ -125,7 +130,10 @@ class SimpleRGCN(torch.nn.Module):
         x = self.conv2(x, edge_index, edge_type)
         return x
 
-model = SimpleRGCN(in_channels=x.size(1), hidden_channels=16, out_channels=2, num_relations=1)
+
+model = SimpleRGCN(
+    in_channels=x.size(1), hidden_channels=16, out_channels=2, num_relations=1
+)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
 
 # 训练

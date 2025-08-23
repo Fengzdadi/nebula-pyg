@@ -20,14 +20,14 @@ def split_batches(lst, batch_size):
         list: Sub-list of size <= batch_size.
     """
     for i in range(0, len(lst), batch_size):
-        yield lst[i:i + batch_size]
+        yield lst[i : i + batch_size]
 
 
 def scan_all_tag_vids(
-        space: str,
-        session,
-        sclient,
-        batch_size: int = 4096,
+    space: str,
+    session,
+    sclient,
+    batch_size: int = 4096,
 ) -> Tuple[Dict[str, Dict[str, int]], Dict[str, Dict[int, str]], Dict[str, str]]:
     """
     Scans all vertex tags in the given Nebula space and collects all VIDs.
@@ -52,7 +52,9 @@ def scan_all_tag_vids(
 
     for tag in tags:
         i = 0
-        for _part_id, batch in sclient.scan_vertex_async(space, tag, prop_names=[], batch_size=batch_size):
+        for _part_id, batch in sclient.scan_vertex_async(
+            space, tag, prop_names=[], batch_size=batch_size
+        ):
             for node in batch.as_nodes():
                 vid = node.get_id().cast()
                 vid_to_idx[tag][vid] = i
@@ -64,12 +66,12 @@ def scan_all_tag_vids(
 
 
 def get_edge_type_groups(
-    session,                       # ← graphd session（已登录）
-    sclient,                       # ← GraphStorageClient
+    session,  # ← graphd session（已登录）
+    sclient,  # ← GraphStorageClient
     space: str,
-    snapshot: Dict,                # 需要包含 'vid_to_tag'
+    snapshot: Dict,  # 需要包含 'vid_to_tag'
     batch_size: int = 4096,
-    sample_per_edge: int = 1,      # 每种 edge_name 抽样多少条边来推断三元组
+    sample_per_edge: int = 1,  # 每种 edge_name 抽样多少条边来推断三元组
     edge_names: Optional[Iterable[str]] = None,  # 如已知可直接传，省一次 SHOW
 ) -> List[Tuple[str, str, str]]:
     """
@@ -137,11 +139,16 @@ def build_edge_index_dict(gclient, sclient, space, snapshot):
               { (src_tag, edge_type, dst_tag): torch.LongTensor([2, num_edges]) }
     """
     edge_index_dict = {}
-    edge_types = [ValueWrapper(row.values[0]).cast() for row in gclient.execute(f"USE {space}; SHOW EDGES;").rows()]
+    edge_types = [
+        ValueWrapper(row.values[0]).cast()
+        for row in gclient.execute(f"USE {space}; SHOW EDGES;").rows()
+    ]
     for edge_type in edge_types:
         # Group edges by (src_tag, dst_tag)
         buf = {}
-        for part_id, batch in sclient.scan_edge_async(space, edge_type, batch_size=4096):
+        for part_id, batch in sclient.scan_edge_async(
+            space, edge_type, batch_size=4096
+        ):
             for rel in batch.as_relationships():
                 src_vid = rel.start_vertex_id().cast()
                 dst_vid = rel.end_vertex_id().cast()
