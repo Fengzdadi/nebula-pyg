@@ -13,7 +13,7 @@ from tqdm import tqdm
 SPACE = 'arxiv'
 USER = 'root'
 PASSWORD = 'nebula'
-SNAPSHOT_PATH = 'snapshot_vid_to_idx_arxiv.pkl'
+SNAPSHOT_PATH = '../../snapshot_vid_to_idx_arxiv.pkl'
 EXPOSE = 'x'
 
 # Change to your actual address
